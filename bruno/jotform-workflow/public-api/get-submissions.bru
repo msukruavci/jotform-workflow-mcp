@@ -1,0 +1,20 @@
+meta {
+  name: Get Submissions
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/form/{{testFormId}}/submissions
+  body: none
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+}
+
+docs {
+  Confirmed working 2026-08-05. TODO: inspect whether workflowStatus field
+  is present and what it actually contains for a form tied to a workflow.
+}

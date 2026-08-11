@@ -1,0 +1,4518 @@
+{
+  "workflow_ai_agent_web_search": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_agent_web_search.json",
+    "title": "Automation Agent Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_agent_web_search",
+        "default": "workflow_ai_agent_web_search"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Automation Agent"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Describe what to find or verify on the web. Use {fieldName} to inject submission values.",
+        "default": ""
+      },
+      "outputs": {
+        "type": "array",
+        "description": "Generated outputs",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_calculate": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_calculate.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_calculate",
+        "default": "workflow_ai_calculate"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Calculate"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to calculate",
+        "default": ""
+      },
+      "outputs": {
+        "type": "array",
+        "description": "Generated outputs",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_categorize": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_categorize.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_categorize",
+        "default": "workflow_ai_categorize"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Categorize"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to categorize",
+        "default": ""
+      },
+      "options": {
+        "type": "array",
+        "description": "Categorize fields for form",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_custom_prompt": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_custom_prompt.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_custom_prompt",
+        "default": "workflow_ai_custom_prompt"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Categorize"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to categorize",
+        "default": ""
+      },
+      "outputs": {
+        "type": "array",
+        "description": "Generated outputs",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_extract_from_file": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_extract_from_file.json",
+    "title": "AI Extract From File",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_extract_from_file",
+        "default": "workflow_ai_extract_from_file"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Summarize"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to summarize",
+        "default": ""
+      },
+      "options": {
+        "type": "array",
+        "description": "Outputs of extract element",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_extract_information": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_extract_information.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_extract_information",
+        "default": "workflow_ai_extract_information"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Summarize"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to summarize",
+        "default": ""
+      },
+      "options": {
+        "type": "array",
+        "description": "Outputs of extract element",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_generate_text": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_generate_text.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_generate_text",
+        "default": "workflow_ai_generate_text"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Generate Text"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to generate text",
+        "default": ""
+      },
+      "writingLength": {
+        "type": "string",
+        "enum": [
+          "short",
+          "medium",
+          "long"
+        ],
+        "description": "Length of generated text content",
+        "default": "medium"
+      },
+      "writingTone": {
+        "type": "array",
+        "description": "Tone of generated text content",
+        "default": [
+          "Friendly"
+        ]
+      },
+      "writingStyle": {
+        "type": "array",
+        "description": "writingStyle of generated text content",
+        "default": [
+          "Formal"
+        ]
+      },
+      "writingDepth": {
+        "type": "string",
+        "enum": [
+          "Beginner",
+          "Intermediate",
+          "Expert"
+        ],
+        "description": "writingStyle of generated text content",
+        "default": "Intermediate"
+      },
+      "outputs": {
+        "type": "array",
+        "description": "Outputs of extract element",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_id_generator": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_id_generator.json",
+    "title": "ID Generator Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_id_generator",
+        "default": "workflow_ai_id_generator"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "ID Generator"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Detailed runtime instruction. Use {fieldName} to inject submission values.",
+        "default": ""
+      },
+      "displayPrompt": {
+        "type": "string",
+        "description": "Short, user-facing description of the ID generation task.",
+        "default": ""
+      },
+      "outputs": {
+        "type": "array",
+        "description": "Generated outputs",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_placeholder": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_placeholder.json",
+    "title": "Start Point Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_placeholder",
+        "default": "workflow_ai_placeholder"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Empty Element"
+      }
+    }
+  },
+  "workflow_ai_response": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_response.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_response",
+        "default": "workflow_ai_response"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Agent Response"
+      },
+      "responseType": {
+        "type": "string",
+        "enum": [
+          "generate",
+          "exactly"
+        ],
+        "description": "Say message",
+        "default": "generate"
+      },
+      "response": {
+        "type": "string",
+        "default": ""
+      }
+    }
+  },
+  "workflow_ai_sentiment_analysis": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_sentiment_analysis.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_sentiment_analysis",
+        "default": "workflow_ai_sentiment_analysis"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Sentiment Analysis"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to analyze",
+        "default": ""
+      },
+      "options": {
+        "type": "array",
+        "description": "Sentiments fields for form",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_summarize_text": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_summarize_text.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_summarize_text",
+        "default": "workflow_ai_summarize_text"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "AI Summarize"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Form fields to summarize",
+        "default": ""
+      },
+      "summaryLength": {
+        "type": "string",
+        "enum": [
+          "short",
+          "medium",
+          "long"
+        ],
+        "description": "Length of generated summary content",
+        "default": "short"
+      }
+    }
+  },
+  "workflow_ai_task_automation": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_task_automation.json",
+    "title": "Task Automation Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_task_automation",
+        "default": "workflow_ai_task_automation"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Task Automation"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Detailed runtime instruction. Use {fieldName} to inject submission values.",
+        "default": ""
+      },
+      "displayPrompt": {
+        "type": "string",
+        "description": "Short, user-facing description of the automation.",
+        "default": ""
+      },
+      "outputs": {
+        "type": "array",
+        "description": "Generated outputs",
+        "default": []
+      }
+    }
+  },
+  "workflow_ai_update_submission": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_ai_update_submission.json",
+    "title": "Update Submission Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_ai_update_submission",
+        "default": "workflow_ai_update_submission"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Update Value"
+      },
+      "fields": {
+        "type": "string",
+        "description": "Detailed runtime instruction. Use {fieldName} to inject submission values.",
+        "default": ""
+      },
+      "displayPrompt": {
+        "type": "string",
+        "description": "Short, user-facing description of the submission update.",
+        "default": ""
+      },
+      "outputs": {
+        "type": "array",
+        "description": "Generated outputs",
+        "default": []
+      }
+    }
+  },
+  "workflow_approval": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_approval.json",
+    "title": "Approval Schema",
+    "description": "Common element properties between other workflow elements",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "empty": {
+        "type": "string",
+        "maxLength": 0
+      },
+      "yesNo": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      },
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "$ref": "#/definitions/empty"
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "email": {
+        "type": "object",
+        "properties": {
+          "replyTo": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/emailObjectArray"
+              },
+              {
+                "description": "Reply to email addresses",
+                "default": []
+              }
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "content": {
+            "type": "string",
+            "description": "Email Content"
+          },
+          "attachment": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Name of the attachment file"
+                  }
+                ]
+              },
+              "type": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Mimetype of the attachment file"
+                  }
+                ]
+              },
+              "url": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "URL of the attachment file"
+                  }
+                ]
+              }
+            },
+            "description": "Email attachment url"
+          },
+          "senderEmail": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/emailAddress"
+              },
+              {
+                "type": "string",
+                "$comment": "TODO: Im not sure if we should include this type... It's currently required because of 'Add New Email Address' option. We need to validate wizard.."
+              }
+            ]
+          },
+          "lastQuestionID": {
+            "type": "string"
+          },
+          "pdfattachment": {
+            "type": "string",
+            "default": "0"
+          },
+          "pdfId": {
+            "type": "string",
+            "default": ""
+          },
+          "pdfPassword": {
+            "type": "string",
+            "default": ""
+          },
+          "passwordEnabled": {
+            "type": "string",
+            "default": "0"
+          },
+          "hideEmptyFields": {
+            "type": "string",
+            "default": "1"
+          },
+          "uploadAttachment": {
+            "type": "string",
+            "default": "0"
+          },
+          "uploadAttachmentForms": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "properties": {
+      "outcomes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "number"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "APPROVE",
+                "DENY",
+                "CUSTOM"
+              ],
+              "description": "Outcome type to detech whether it is possitive or negative"
+            },
+            "text": {
+              "type": "string",
+              "description": "Outcome label text"
+            },
+            "buttonColor": {
+              "type": "string",
+              "description": "Button background color"
+            },
+            "textColor": {
+              "type": "string",
+              "description": "Button text color"
+            },
+            "outcomeSign": {
+              "type": "string",
+              "description": "outcome sign value"
+            }
+          }
+        }
+      },
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_approval",
+        "default": "workflow_approval"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Approval"
+      },
+      "header": {
+        "type": "string",
+        "description": "Loginless header",
+        "default": "Your action required"
+      },
+      "taskDescription": {
+        "type": "string",
+        "description": "Loginless description",
+        "default": ""
+      },
+      "subType": {
+        "description": "Subtype of element",
+        "enum": [
+          "",
+          "workflow_team_approval",
+          "workflow_approval_with_sign"
+        ],
+        "default": ""
+      },
+      "approver": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Approver email addreess",
+            "default": ""
+          }
+        ]
+      },
+      "team": {
+        "type": "string",
+        "description": "Approver team",
+        "default": ""
+      },
+      "requireLogin": {
+        "default": "Yes",
+        "$ref": "#/definitions/yesNo"
+      },
+      "sendNotification": {
+        "default": "Yes",
+        "$ref": "#/definitions/yesNo"
+      },
+      "approvalEmail": {
+        "type": "object",
+        "default": {
+          "sendCustomApprovalEmail": "No",
+          "email": {}
+        },
+        "properties": {
+          "sendCustomApprovalEmail": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Allows user to customize approval email"
+              }
+            ]
+          },
+          "email": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/email"
+              },
+              {
+                "description": "Approval email props"
+              }
+            ]
+          }
+        }
+      },
+      "reassign": {
+        "type": "object",
+        "default": {
+          "reassignTask": "No",
+          "sendNotification": "No",
+          "email": {},
+          "approverEmail": {}
+        },
+        "properties": {
+          "reassignTask": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Flag for allowing assignee to reassign task to another person"
+              }
+            ]
+          },
+          "sendNotification": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Flag for sending notification to owner if assignee rassigns the task"
+              },
+              {
+                "required": [
+                  "reassignTask"
+                ]
+              }
+            ]
+          },
+          "email": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/email"
+              },
+              {
+                "description": "Reassign email props"
+              }
+            ]
+          },
+          "approverEmail": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/email"
+              },
+              {
+                "description": "Reassign approver email props"
+              }
+            ]
+          }
+        }
+      },
+      "requestMore": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/yesNo"
+          },
+          {
+            "description": "Allows user to ask more information"
+          }
+        ]
+      },
+      "comment": {
+        "type": "object",
+        "default": {
+          "addComment": "Yes",
+          "commentRequired": "No"
+        },
+        "properties": {
+          "addComment": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Allow approver to add a comment"
+              }
+            ]
+          },
+          "commentRequired": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "required": [
+                  "addComment"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "escalation": {
+        "type": "object",
+        "default": {
+          "escalated": "No",
+          "escalateWhen": {
+            "executeAfterTime": "Yes",
+            "afterAmount": "1",
+            "afterUnit": "day",
+            "executeOnCustomDate": "No",
+            "customDate": ""
+          },
+          "escalateTask": {
+            "escalateToPerson": "Yes",
+            "escalateTo": ""
+          }
+        },
+        "properties": {
+          "escalated": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables escalating task to another person after a specified time period"
+              }
+            ]
+          },
+          "escalateWhen": {
+            "type": "object",
+            "properties": {
+              "executeAfterTime": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Escalate after given time period"
+                  }
+                ]
+              },
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given escalate unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given escalate amount"
+              },
+              "executeOnCustomDate": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Enables escalating at a custom date"
+                  }
+                ]
+              },
+              "customDate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Escalate on given date"
+              }
+            }
+          },
+          "escalateTask": {
+            "type": "object",
+            "properties": {
+              "escalateTo": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/emailAddress"
+                  },
+                  {
+                    "description": "Email address to escalate",
+                    "default": []
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "expiration": {
+        "type": "object",
+        "default": {
+          "expire": "No",
+          "executeWhen": {
+            "executeAfterTime": "Yes",
+            "afterAmount": "1",
+            "afterUnit": "day",
+            "executeOnCustomDate": "No",
+            "customDate": ""
+          }
+        },
+        "properties": {
+          "escalated": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables expiration task to another person after a specified time period"
+              }
+            ]
+          },
+          "executeWhen": {
+            "type": "object",
+            "properties": {
+              "executeAfterTime": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Expire after given time period"
+                  }
+                ]
+              },
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given expire unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given expire amount"
+              },
+              "executeOnCustomDate": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Enables escalating at a custom date"
+                  }
+                ]
+              },
+              "customDate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Escalate on given date"
+              }
+            }
+          }
+        }
+      },
+      "autoFinish": {
+        "type": "object",
+        "default": {
+          "activated": "No",
+          "executeWhen": {
+            "executeAfterTime": "Yes",
+            "afterAmount": "1",
+            "afterUnit": "day",
+            "executeOnCustomDate": "No",
+            "customDate": ""
+          },
+          "autoFinishOutcomeID": ""
+        },
+        "properties": {
+          "activated": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables auto finishing task after a specified time period"
+              }
+            ]
+          },
+          "executeWhen": {
+            "type": "object",
+            "properties": {
+              "executeAfterTime": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Execute after given time period"
+                  }
+                ]
+              },
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given escalate unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given amount"
+              },
+              "executeOnCustomDate": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Enables autofinishing at a custom date"
+                  }
+                ]
+              },
+              "customDate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "autofinish on given date"
+              }
+            }
+          },
+          "autoFinishOutcomeID": {
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/definitions/empty"
+                  }
+                ]
+              },
+              {
+                "description": "Outcome to assign while autocompleting the task"
+              }
+            ]
+          }
+        }
+      },
+      "reminder": {
+        "type": "object",
+        "default": {
+          "sendReminder": "No",
+          "remindAfter": {
+            "afterAmount": "1",
+            "afterUnit": "day"
+          },
+          "customizeReminder": {
+            "sendCustomizedReminder": "No",
+            "customReminderEmail": {}
+          }
+        },
+        "properties": {
+          "sendReminder": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables sending reminder email to approver"
+              }
+            ]
+          },
+          "remindAfter": {
+            "type": "object",
+            "properties": {
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given remind time unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given remind time amount"
+              }
+            }
+          },
+          "customizeReminder": {
+            "type": "object",
+            "properties": {
+              "sendCustomizedReminder": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Custom reminder email"
+                  }
+                ]
+              },
+              "customReminderEmail": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/email"
+                  },
+                  {
+                    "description": "Reminder email props"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "enum": [
+                "",
+                "workflow_team_approval"
+              ]
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "outcomes": {
+              "default": [
+                {
+                  "id": 1,
+                  "outcomeID": 1,
+                  "type": "APPROVE",
+                  "buttonColor": "#01bd6f",
+                  "text": "Approve",
+                  "textColor": "#fff"
+                },
+                {
+                  "id": 2,
+                  "outcomeID": 2,
+                  "type": "DENY",
+                  "text": "Deny",
+                  "textColor": "#fff",
+                  "buttonColor": "#D53049"
+                }
+              ]
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "outcomes": {
+              "default": [
+                {
+                  "id": 1,
+                  "outcomeID": 1,
+                  "type": "APPROVE",
+                  "buttonColor": "#01bd6f",
+                  "text": "Approve",
+                  "outcomeSign": "Yes",
+                  "textColor": "#fff"
+                },
+                {
+                  "id": 2,
+                  "outcomeID": 2,
+                  "type": "DENY",
+                  "text": "Deny",
+                  "outcomeSign": "No",
+                  "textColor": "#fff",
+                  "buttonColor": "#D53049"
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "workflow_assign": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_assign.json",
+    "title": "Assign Element Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "empty": {
+        "type": "string",
+        "maxLength": 0
+      },
+      "yesNo": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      },
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "$ref": "#/definitions/empty"
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "email": {
+        "type": "object",
+        "properties": {
+          "replyTo": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/emailObjectArray"
+              },
+              {
+                "description": "Reply to email addresses",
+                "default": []
+              }
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "content": {
+            "type": "string",
+            "description": "Email Content"
+          },
+          "attachment": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Name of the attachment file"
+                  }
+                ]
+              },
+              "type": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Mimetype of the attachment file"
+                  }
+                ]
+              },
+              "url": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "URL of the attachment file"
+                  }
+                ]
+              }
+            },
+            "description": "Email attachment url"
+          },
+          "senderEmail": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/emailAddress"
+              },
+              {
+                "type": "string",
+                "$comment": "TODO: Im not sure if we should include this type... It's currently required because of 'Add New Email Address' option. We need to validate wizard.."
+              }
+            ]
+          },
+          "lastQuestionID": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Assign Task"
+      },
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_assign",
+        "default": "workflow_assign"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "assignee": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Assignee email addreess",
+            "default": ""
+          }
+        ]
+      },
+      "assignType": {
+        "type": "string",
+        "description": "",
+        "default": "TASK"
+      },
+      "assignEmail": {
+        "type": "object",
+        "default": {
+          "email": {}
+        },
+        "properties": {
+          "email": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/email"
+              },
+              {
+                "description": "Assign email props"
+              }
+            ]
+          }
+        }
+      },
+      "outcomes": {
+        "type": "array",
+        "default": [
+          {
+            "id": 1,
+            "outcomeID": 1,
+            "type": "CUSTOM",
+            "buttonColor": "#01bd6f",
+            "text": "Done",
+            "textColor": "#fff"
+          }
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "number"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "CUSTOM"
+              ],
+              "description": "Outcome type to detect the task status"
+            },
+            "text": {
+              "type": "string",
+              "description": "Outcome label text"
+            },
+            "buttonColor": {
+              "type": "string",
+              "description": "Button background color"
+            },
+            "textColor": {
+              "type": "string",
+              "description": "Button text color"
+            }
+          }
+        }
+      },
+      "checklist": {
+        "type": "object",
+        "default": {
+          "addChecklist": "No",
+          "list": []
+        },
+        "properties": {
+          "addChecklist": {
+            "type": "string"
+          },
+          "list": {
+            "type": "array",
+            "default": []
+          }
+        }
+      },
+      "reminder": {
+        "type": "object",
+        "default": {
+          "sendReminder": "No",
+          "remindAfter": {
+            "afterAmount": "1",
+            "afterUnit": "day"
+          },
+          "customizeReminder": {
+            "sendCustomizedReminder": "No",
+            "customReminderEmail": {}
+          }
+        },
+        "properties": {
+          "sendReminder": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables sending reminder email to approver"
+              }
+            ]
+          },
+          "remindAfter": {
+            "type": "object",
+            "properties": {
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given remind time unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given remind time amount"
+              }
+            }
+          },
+          "customizeReminder": {
+            "type": "object",
+            "properties": {
+              "sendCustomizedReminder": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Custom reminder email"
+                  }
+                ]
+              },
+              "customReminderEmail": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/email"
+                  },
+                  {
+                    "description": "Reminder email props"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "resouceType": {
+        "type": "string",
+        "description": ""
+      },
+      "resourceID": {
+        "type": "string",
+        "description": ""
+      },
+      "fieldIDs": {
+        "type": "string",
+        "description": ""
+      }
+    }
+  },
+  "workflow_assign_form": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_assign_form.json",
+    "title": "Assign Form Schema",
+    "description": "Common element properties between other workflow elements",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "empty": {
+        "type": "string",
+        "maxLength": 0
+      },
+      "yesNo": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      },
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "$ref": "#/definitions/empty"
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "email": {
+        "type": "object",
+        "properties": {
+          "replyTo": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/emailObjectArray"
+              },
+              {
+                "description": "Reply to email addresses",
+                "default": []
+              }
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "content": {
+            "type": "string",
+            "description": "Email Content"
+          },
+          "attachment": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Name of the attachment file"
+                  }
+                ]
+              },
+              "type": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Mimetype of the attachment file"
+                  }
+                ]
+              },
+              "url": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "URL of the attachment file"
+                  }
+                ]
+              }
+            },
+            "description": "Email attachment url"
+          },
+          "senderEmail": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/emailAddress"
+              },
+              {
+                "type": "string",
+                "$comment": "TODO: Im not sure if we should include this type... It's currently required because of 'Add New Email Address' option. We need to validate wizard.."
+              }
+            ]
+          },
+          "lastQuestionID": {
+            "type": "string"
+          },
+          "pdfattachment": {
+            "type": "string",
+            "default": "0"
+          },
+          "pdfId": {
+            "type": "string",
+            "default": ""
+          },
+          "pdfPassword": {
+            "type": "string",
+            "default": ""
+          },
+          "passwordEnabled": {
+            "type": "string",
+            "default": "0"
+          },
+          "hideEmptyFields": {
+            "type": "string",
+            "default": "1"
+          },
+          "uploadAttachment": {
+            "type": "string",
+            "default": "0"
+          }
+        }
+      }
+    },
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_assign_form",
+        "default": "workflow_assign_form"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Form"
+      },
+      "requireLogin": {
+        "type": "string",
+        "default": "Yes"
+      },
+      "formID": {
+        "type": "string",
+        "description": "ID of form to assign"
+      },
+      "assignee": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Recipient email addresses",
+            "default": []
+          }
+        ]
+      },
+      "assignFormEmail": {
+        "type": "object",
+        "default": {
+          "email": {}
+        },
+        "properties": {
+          "email": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/email"
+              },
+              {
+                "description": "Assign Form email props"
+              }
+            ]
+          }
+        }
+      },
+      "reminder": {
+        "type": "object",
+        "default": {
+          "sendReminder": "No",
+          "remindAfter": {
+            "afterAmount": "1",
+            "afterUnit": "day"
+          },
+          "customizeReminder": {
+            "sendCustomizedReminder": "No",
+            "customReminderEmail": {}
+          }
+        },
+        "properties": {
+          "sendReminder": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables sending reminder email to approver"
+              }
+            ]
+          },
+          "remindAfter": {
+            "type": "object",
+            "properties": {
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given remind time unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given remind time amount"
+              }
+            }
+          },
+          "customizeReminder": {
+            "type": "object",
+            "properties": {
+              "sendCustomizedReminder": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Custom reminder email"
+                  }
+                ]
+              },
+              "customReminderEmail": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/email"
+                  },
+                  {
+                    "description": "Reminder email props"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "prefillEnabled": {
+        "default": "No",
+        "$ref": "#/definitions/yesNo",
+        "description": "Prefill enabled for assigned form"
+      },
+      "prefillNotEnabled": {
+        "default": "No",
+        "$ref": "#/definitions/yesNo",
+        "description": "Prefill enabled for assigned form"
+      },
+      "prefillFormID": {
+        "type": "string",
+        "description": "ID of form to prefill assigned form"
+      },
+      "mapping": {
+        "type": "array",
+        "description": "ID of form to prefill assigned form"
+      },
+      "fieldBehaviour": {
+        "default": "readonly",
+        "type": "string",
+        "enum": [
+          "edit",
+          "readonly"
+        ],
+        "description": "Prefill edit answer"
+      },
+      "prefillSettings": {
+        "type": "object",
+        "items": {
+          "type": "object",
+          "properties": {
+            "mapping": {
+              "type": "array"
+            },
+            "fieldBehaviour": {
+              "type": "string",
+              "enum": [
+                "edit",
+                "readonly"
+              ]
+            },
+            "list": {
+              "type": "string"
+            }
+          }
+        },
+        "default": {
+          "fieldBehaviour": "readonly"
+        }
+      },
+      "sheets": {
+        "type": "array",
+        "default": [],
+        "items": {
+          "type": "object",
+          "properties": {
+            "sheetID": {
+              "type": "string",
+              "description": "ID of sheet to assign"
+            },
+            "sheetViewID": {
+              "type": "string",
+              "description": "ID of sheet view to assign"
+            },
+            "sheetColumnID": {
+              "type": "string",
+              "description": "ID of sheet column to assign"
+            },
+            "sheetFilter": {
+              "type": "string",
+              "description": "Filter to apply to the sheet"
+            }
+          }
+        }
+      },
+      "assignmentOptions": {
+        "type": "object",
+        "description": "Option for the completion rule",
+        "default": {
+          "option": "first"
+        },
+        "properties": {
+          "option": {
+            "type": "string",
+            "enum": [
+              "none",
+              "first",
+              "majority",
+              "amount",
+              "all"
+            ],
+            "default": "first",
+            "description": "Assignment strategy"
+          }
+        }
+      }
+    }
+  },
+  "workflow_assign_task": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_assign_task.json",
+    "title": "Assign Task Schema",
+    "description": "Common element properties between other workflow elements",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "empty": {
+        "type": "string",
+        "maxLength": 0
+      },
+      "yesNo": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      },
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "$ref": "#/definitions/empty"
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "email": {
+        "type": "object",
+        "properties": {
+          "replyTo": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/emailObjectArray"
+              },
+              {
+                "description": "Reply to email addresses",
+                "default": []
+              }
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "content": {
+            "type": "string",
+            "description": "Email Content"
+          },
+          "attachment": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Name of the attachment file"
+                  }
+                ]
+              },
+              "type": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "Mimetype of the attachment file"
+                  }
+                ]
+              },
+              "url": {
+                "allOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "description": "URL of the attachment file"
+                  }
+                ]
+              }
+            },
+            "description": "Email attachment url"
+          },
+          "senderEmail": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/emailAddress"
+              },
+              {
+                "type": "string",
+                "$comment": "TODO: Im not sure if we should include this type... It's currently required because of 'Add New Email Address' option. We need to validate wizard.."
+              }
+            ]
+          },
+          "lastQuestionID": {
+            "type": "string"
+          },
+          "pdfattachment": {
+            "type": "string",
+            "default": "0"
+          },
+          "pdfId": {
+            "type": "string",
+            "default": ""
+          },
+          "pdfPassword": {
+            "type": "string",
+            "default": ""
+          },
+          "passwordEnabled": {
+            "type": "string",
+            "default": "0"
+          },
+          "hideEmptyFields": {
+            "type": "string",
+            "default": "1"
+          },
+          "uploadAttachment": {
+            "type": "string",
+            "default": "0"
+          },
+          "uploadAttachmentForms": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_assign_task",
+        "default": "workflow_assign_task"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Task"
+      },
+      "taskDescription": {
+        "type": "string",
+        "description": "Description"
+      },
+      "outcomes": {
+        "type": "array",
+        "default": [
+          {
+            "id": 1,
+            "outcomeID": 1,
+            "type": "CUSTOM",
+            "buttonColor": "#0075E3",
+            "text": "Complete",
+            "textColor": "#FFFFFF"
+          }
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "number"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "APPROVE",
+                "DENY",
+                "CUSTOM"
+              ],
+              "description": "Outcome type to detech whether it is possitive or negative"
+            },
+            "text": {
+              "type": "string",
+              "description": "Outcome label text"
+            },
+            "buttonColor": {
+              "type": "string",
+              "description": "Button background color"
+            },
+            "textColor": {
+              "type": "string",
+              "description": "Button text color"
+            },
+            "outcomeSign": {
+              "type": "string",
+              "description": "outcome sign value"
+            }
+          }
+        }
+      },
+      "assignee": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Assignee email addreess",
+            "default": ""
+          }
+        ]
+      },
+      "requireLogin": {
+        "default": "Yes",
+        "$ref": "#/definitions/yesNo"
+      },
+      "sendNotification": {
+        "default": "Yes",
+        "$ref": "#/definitions/yesNo"
+      },
+      "assignTaskEmail": {
+        "type": "object",
+        "default": {
+          "sendAssignTaskEmail": "No",
+          "email": {}
+        },
+        "properties": {
+          "sendAssignTaskEmail": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Allows user to customize assign task email"
+              }
+            ]
+          },
+          "email": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/email"
+              },
+              {
+                "description": "Task email props"
+              }
+            ]
+          }
+        }
+      },
+      "expiration": {
+        "type": "object",
+        "default": {
+          "expire": "No",
+          "executeWhen": {
+            "executeAfterTime": "Yes",
+            "afterAmount": "1",
+            "afterUnit": "day",
+            "executeOnCustomDate": "No",
+            "customDate": ""
+          }
+        },
+        "properties": {
+          "escalated": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables expiration task to another person after a specified time period"
+              }
+            ]
+          },
+          "executeWhen": {
+            "type": "object",
+            "properties": {
+              "executeAfterTime": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Expire after given time period"
+                  }
+                ]
+              },
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given expire unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given expire amount"
+              },
+              "executeOnCustomDate": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Enables escalating at a custom date"
+                  }
+                ]
+              },
+              "customDate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Escalate on given date"
+              }
+            }
+          }
+        }
+      },
+      "reminder": {
+        "type": "object",
+        "default": {
+          "sendReminder": "No",
+          "remindAfter": {
+            "afterAmount": "1",
+            "afterUnit": "day"
+          },
+          "customizeReminder": {
+            "sendCustomizedReminder": "No",
+            "customReminderEmail": {}
+          }
+        },
+        "properties": {
+          "sendReminder": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/yesNo"
+              },
+              {
+                "description": "Enables sending reminder email to approver"
+              }
+            ]
+          },
+          "remindAfter": {
+            "type": "object",
+            "properties": {
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given remind time unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given remind time amount"
+              }
+            }
+          },
+          "customizeReminder": {
+            "type": "object",
+            "properties": {
+              "sendCustomizedReminder": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/yesNo"
+                  },
+                  {
+                    "description": "Custom reminder email"
+                  }
+                ]
+              },
+              "customReminderEmail": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/email"
+                  },
+                  {
+                    "description": "Reminder email props"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  },
+  "workflow_binary_decision": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_binary_decision.json",
+    "title": "Binary Decision Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_binary_decision",
+        "default": "workflow_binary_decision"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "If/Else Condition"
+      },
+      "conditionTermsMatchType": {
+        "type": "string",
+        "enum": [
+          "All",
+          "Any"
+        ],
+        "description": "should match all conditions or any of them",
+        "default": "All"
+      },
+      "conditionTerms": {
+        "type": "array",
+        "default": [],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            },
+            "isError": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "outcomes": {
+        "type": "array",
+        "default": [
+          {
+            "id": 1,
+            "outcomeID": 1,
+            "type": "CONDITION",
+            "conditionValue": "TRUE"
+          },
+          {
+            "id": 2,
+            "outcomeID": 2,
+            "type": "CONDITION",
+            "conditionValue": "FALSE"
+          }
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "outcomeID": {
+              "type": "number"
+            },
+            "linkID": {
+              "type": "number"
+            },
+            "conditionValue": {
+              "type": "string",
+              "enum": [
+                "TRUE",
+                "FALSE"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "workflow_collection": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_collection.json",
+    "title": "Collection Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_collection",
+        "default": "workflow_collection"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Collection"
+      },
+      "dataType": {
+        "type": "string",
+        "description": "Data source type for the collection",
+        "default": ""
+      },
+      "sheets": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "sheetID": {
+              "type": "string",
+              "description": "ID of sheet to assign"
+            },
+            "sheetViewID": {
+              "type": "string",
+              "description": "ID of sheet view to assign"
+            },
+            "sheetColumnID": {
+              "type": "string",
+              "description": "ID of sheet column to assign"
+            },
+            "sheetFilter": {
+              "type": "string",
+              "description": "Filter to apply to the sheet"
+            }
+          }
+        }
+      }
+    },
+    "if": {
+      "required": [
+        "dataType"
+      ],
+      "properties": {
+        "dataType": {
+          "const": "sheet"
+        }
+      }
+    },
+    "then": {
+      "properties": {
+        "sheets": {
+          "default": []
+        }
+      }
+    }
+  },
+  "workflow_conditional_branch": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_conditional_branch.json",
+    "title": "Binary Decision Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_conditional_branch",
+        "default": "workflow_conditional_branch"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Conditional Branch"
+      },
+      "outcomes": {
+        "type": "array",
+        "default": [
+          {
+            "color": "#FFFFFF",
+            "conditionTerms": [],
+            "conditionTermsMatchType": "All",
+            "conditionValue": "OTHER",
+            "id": 999,
+            "outcomeID": 999,
+            "type": "CONDITION",
+            "value": "OTHER"
+          }
+        ]
+      }
+    }
+  },
+  "workflow_end_point": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_end_point.json",
+    "title": "End Point Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_end_point",
+        "default": "workflow_end_point"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "End Flow"
+      },
+      "subType": {
+        "type": "string",
+        "description": "Behavior of end element",
+        "enum": [
+          "workflow_end_point_pseudo",
+          "workflow_end_point_terminate"
+        ],
+        "default": "workflow_end_point_pseudo"
+      },
+      "width": {
+        "type": "number",
+        "description": "Width of end element based on subType"
+      },
+      "reasonOfTerminate": {
+        "type": "string",
+        "description": "reason of terminate selection."
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_end_point_terminate"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "width": {
+              "default": 152
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_end_point_pseudo"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "width": {
+              "default": 96
+            }
+          }
+        }
+      }
+    ]
+  },
+  "workflow_for_each": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_for_each.json",
+    "title": "For Each Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_for_each",
+        "default": "workflow_for_each"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "style": {
+        "type": "object",
+        "description": "Inline style for the group container",
+        "additionalProperties": false,
+        "properties": {
+          "width": {
+            "type": "number",
+            "default": 360
+          },
+          "height": {
+            "type": "number",
+            "default": 260
+          }
+        },
+        "default": {
+          "width": 360,
+          "height": 260
+        }
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "For Each"
+      }
+    }
+  },
+  "workflow_generic": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_generic.json",
+    "title": "Generic Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Generic"
+      },
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_generic",
+        "default": "workflow_generic"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      }
+    }
+  },
+  "workflow_integration": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_integration.json",
+    "title": "Integration Schema",
+    "description": "Common element properties between other workflow elements",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "empty": {
+        "type": "string",
+        "maxLength": 0
+      },
+      "yesNo": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      },
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "$ref": "#/definitions/empty"
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_integration",
+        "default": "workflow_integration"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Integration"
+      },
+      "actionType": {
+        "type": "string",
+        "description": "Action name of integration",
+        "default": ""
+      },
+      "integrationID": {
+        "type": "string",
+        "description": "ID of integration",
+        "default": ""
+      },
+      "mode": {
+        "type": "string",
+        "description": "mode of integration",
+        "default": ""
+      },
+      "integrationAccountName": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Partner Account Name",
+            "default": ""
+          }
+        ]
+      },
+      "integrationAccountID": {
+        "type": "string",
+        "description": "mode of integration",
+        "default": ""
+      },
+      "responseMap": {
+        "type": "array",
+        "default": []
+      },
+      "internalFormID": {
+        "type": "string",
+        "default": ""
+      },
+      "resourceObject": {
+        "type": "object"
+      }
+    }
+  },
+  "workflow_merge": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_merge.json",
+    "title": "Merge Element Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_merge",
+        "default": "workflow_merge"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Merge Point"
+      },
+      "mergeType": {
+        "type": "string",
+        "description": "how to merge paths? ALL|ANY",
+        "default": "ALL"
+      }
+    }
+  },
+  "workflow_pause": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_pause.json",
+    "title": "Merge Element Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_pause",
+        "default": "workflow_pause"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Pause"
+      },
+      "subType": {
+        "type": "string",
+        "description": "Pause element variant. Absent/duration means classic 'for a duration' pause; wait variant suspends until a computed instant.",
+        "enum": [
+          "workflow_pause_duration",
+          "workflow_pause_wait"
+        ]
+      },
+      "pause": {
+        "type": "object",
+        "properties": {
+          "activated": {
+            "type": "string",
+            "description": "Is it activated ?",
+            "default": "Yes"
+          },
+          "executeWhen": {
+            "type": "object",
+            "properties": {
+              "afterAmount": {
+                "type": "string",
+                "description": "After amount of pause action"
+              },
+              "afterUnit": {
+                "type": "string",
+                "description": "After unit of pause action"
+              },
+              "customDate": {
+                "type": "string",
+                "description": "After unit of pause action",
+                "default": ""
+              },
+              "mode": {
+                "type": "string",
+                "description": "Wait subtype (workflow_pause_wait) computation mode for the wake-up instant",
+                "enum": [
+                  "before_after",
+                  "specified_field",
+                  "specified_date"
+                ]
+              },
+              "dateFieldName": {
+                "type": "string",
+                "description": "Reference date field unique name (like AI action elements) for before_after and specified_field modes",
+                "default": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_pause_wait"
+            }
+          },
+          "required": [
+            "subType"
+          ]
+        },
+        "then": {
+          "properties": {
+            "pause": {
+              "type": "object",
+              "default": {
+                "executeWhen": {
+                  "mode": "specified_date",
+                  "afterAmount": "1",
+                  "afterUnit": "days",
+                  "customDate": "",
+                  "dateFieldName": ""
+                },
+                "activated": "Yes"
+              },
+              "required": [
+                "executeWhen"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "executeWhen": {
+                  "type": "object",
+                  "required": [
+                    "mode",
+                    "customDate"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "default": "specified_date"
+                    },
+                    "customDate": {
+                      "type": "string",
+                      "generateDate": true,
+                      "default": ""
+                    },
+                    "afterAmount": {
+                      "type": "string",
+                      "default": "1"
+                    },
+                    "afterUnit": {
+                      "type": "string",
+                      "default": "days"
+                    },
+                    "dateFieldName": {
+                      "type": "string",
+                      "default": ""
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "required": [
+            "pause"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_pause_duration"
+            }
+          },
+          "required": [
+            "subType"
+          ]
+        },
+        "then": {
+          "properties": {
+            "pause": {
+              "type": "object",
+              "default": {
+                "executeWhen": {
+                  "afterAmount": "1",
+                  "afterUnit": "hour"
+                },
+                "activated": "Yes"
+              },
+              "required": [
+                "executeWhen"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "executeWhen": {
+                  "type": "object",
+                  "required": [
+                    "afterAmount",
+                    "afterUnit"
+                  ],
+                  "properties": {
+                    "afterAmount": {
+                      "type": "string",
+                      "default": "1"
+                    },
+                    "afterUnit": {
+                      "type": "string",
+                      "default": "hour"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "required": [
+            "pause"
+          ]
+        }
+      }
+    ]
+  },
+  "workflow_payment_gateway": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_payment_gateway.json",
+    "title": "Payment Gateway Schema",
+    "description": "Properties for workflow payment gateway elements",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "empty": {
+        "type": "string",
+        "maxLength": 0
+      },
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "$ref": "#/definitions/empty"
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_payment_gateway",
+        "default": "workflow_payment_gateway"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for the payment gateway element",
+        "default": "Payment Gateway"
+      },
+      "subType": {
+        "type": "string",
+        "description": "Gateway type identifier (e.g. paypal, stripe)",
+        "default": ""
+      },
+      "actionType": {
+        "type": "string",
+        "description": "Action type of the payment gateway",
+        "default": ""
+      },
+      "paymentConnectionID": {
+        "type": "string",
+        "description": "Connected gateway account ID, set after gateway connection is established",
+        "default": ""
+      },
+      "currency": {
+        "type": "string",
+        "description": "Payment currency for the generated workflow payment link",
+        "default": ""
+      },
+      "emailSendAddress": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "The payment link will be sent to the email address you specify.",
+            "default": ""
+          }
+        ]
+      },
+      "approvalEmail": {
+        "type": "object",
+        "default": {
+          "email": {}
+        },
+        "properties": {
+          "email": {
+            "type": "object",
+            "description": "Payment request email props",
+            "properties": {
+              "uploadAttachment": {
+                "type": "string",
+                "default": "0"
+              },
+              "uploadAttachmentForms": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "paymentReason": {
+        "type": "string",
+        "description": "Specify the product or service this payment request relates to",
+        "default": ""
+      },
+      "paymentType": {
+        "type": "string",
+        "description": "Payment type for the generated workflow payment link",
+        "default": ""
+      },
+      "amount": {
+        "type": "string",
+        "description": "Payment amount for the generated workflow payment link",
+        "default": ""
+      },
+      "amountField": {
+        "type": "string",
+        "description": "",
+        "default": ""
+      },
+      "expiration": {
+        "type": "object",
+        "default": {
+          "expire": "Yes",
+          "executeWhen": {
+            "executeAfterTime": "Yes",
+            "afterAmount": "1",
+            "afterUnit": "day",
+            "executeOnCustomDate": "No",
+            "customDate": ""
+          }
+        },
+        "properties": {
+          "expire": {
+            "type": "string",
+            "enum": [
+              "Yes",
+              "No"
+            ],
+            "description": "Enables payment expiration after a specified time period"
+          },
+          "executeWhen": {
+            "type": "object",
+            "properties": {
+              "executeAfterTime": {
+                "type": "string",
+                "enum": [
+                  "Yes",
+                  "No"
+                ],
+                "description": "Expire after given time period"
+              },
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given expire unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week"
+                ],
+                "description": "Unit of given expire amount"
+              },
+              "executeOnCustomDate": {
+                "type": "string",
+                "enum": [
+                  "Yes",
+                  "No"
+                ],
+                "description": "Enables expiration at a custom date"
+              },
+              "customDate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Expire on given date"
+              }
+            }
+          }
+        }
+      },
+      "reminder": {
+        "type": "object",
+        "default": {
+          "sendReminder": "No",
+          "remindAfter": {
+            "afterAmount": "1",
+            "afterUnit": "day"
+          },
+          "customizeReminder": {
+            "sendCustomizedReminder": "No",
+            "customReminderEmail": {}
+          }
+        },
+        "properties": {
+          "sendReminder": {
+            "type": "string",
+            "enum": [
+              "Yes",
+              "No"
+            ],
+            "description": "Enables sending reminder email for the payment request"
+          },
+          "remindAfter": {
+            "type": "object",
+            "properties": {
+              "afterAmount": {
+                "type": "string",
+                "description": "Quantity of given remind time unit"
+              },
+              "afterUnit": {
+                "type": "string",
+                "enum": [
+                  "hour",
+                  "day",
+                  "week",
+                  "month"
+                ],
+                "description": "Unit of given remind time amount"
+              }
+            }
+          },
+          "customizeReminder": {
+            "type": "object",
+            "properties": {
+              "sendCustomizedReminder": {
+                "type": "string",
+                "enum": [
+                  "Yes",
+                  "No"
+                ],
+                "description": "Custom reminder email"
+              },
+              "customReminderEmail": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
+      "outcomes": {
+        "type": "array",
+        "default": [
+          {
+            "id": 1,
+            "outcomeID": 1,
+            "type": "success",
+            "buttonColor": "#01bd6f",
+            "text": "Success",
+            "textColor": "#FFFFFF"
+          },
+          {
+            "id": 2,
+            "outcomeID": 2,
+            "type": "expired",
+            "buttonColor": "#D53049",
+            "text": "Expired",
+            "textColor": "#FFFFFF"
+          }
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "number"
+            },
+            "outcomeID": {
+              "type": "number"
+            },
+            "linkID": {
+              "type": "number"
+            },
+            "type": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "buttonColor": {
+              "type": "string"
+            },
+            "textColor": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "gateway_type": {
+        "type": "string",
+        "description": "Gateway type identifier derived from subType (e.g. control_stripe, control_paypal)",
+        "default": ""
+      }
+    }
+  },
+  "workflow_placeholder": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_placeholder.json",
+    "title": "Start Point Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_placeholder",
+        "default": "workflow_placeholder"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Empty Element"
+      }
+    }
+  },
+  "workflow_qr_code": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_qr_code.json",
+    "title": "QR Code Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_qr_code",
+        "default": "workflow_qr_code"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "QR Code"
+      },
+      "content": {
+        "type": "string",
+        "description": "Text or URL encoded in the QR code. Supports workflow field references.",
+        "maxLength": 2000,
+        "default": ""
+      }
+    }
+  },
+  "workflow_reminder_email": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_reminder_email.json",
+    "title": "Reminder Email Element Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "yesNo": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      },
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "type": "string",
+            "maxLength": 0
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "properties": {
+      "type": {
+        "type": "string",
+        "const": "workflow_reminder_email",
+        "default": "workflow_reminder_email"
+      },
+      "x": {
+        "type": "number"
+      },
+      "y": {
+        "type": "number"
+      },
+      "name": {
+        "type": "string",
+        "default": "Reminder Email"
+      },
+      "to": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Recipient email addresses",
+            "default": []
+          }
+        ]
+      },
+      "timing": {
+        "type": "object",
+        "default": {
+          "mode": "absolute",
+          "executeAfterTime": "No",
+          "executeOnCustomDate": "Yes",
+          "amount": "1",
+          "unit": "day",
+          "type": "before",
+          "customDate": "",
+          "dateField": ""
+        },
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "absolute",
+              "specified_field",
+              "before_after"
+            ],
+            "default": "absolute"
+          },
+          "executeAfterTime": {
+            "$ref": "#/definitions/yesNo",
+            "default": "No"
+          },
+          "executeOnCustomDate": {
+            "$ref": "#/definitions/yesNo",
+            "default": "Yes"
+          },
+          "amount": {
+            "type": "string",
+            "default": "1"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "minute",
+              "hour",
+              "day",
+              "week",
+              "month"
+            ],
+            "default": "day"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "before",
+              "after"
+            ],
+            "default": "before"
+          },
+          "customDate": {
+            "type": "string",
+            "default": ""
+          },
+          "dateField": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
+      "repeat": {
+        "type": "object",
+        "default": {
+          "enabled": "No",
+          "amount": "1",
+          "unit": "day",
+          "maxSends": "3"
+        },
+        "properties": {
+          "enabled": {
+            "$ref": "#/definitions/yesNo",
+            "default": "No"
+          },
+          "amount": {
+            "type": "string",
+            "default": "1"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "hour",
+              "day",
+              "week"
+            ],
+            "default": "day"
+          },
+          "maxSends": {
+            "type": "string",
+            "const": "3",
+            "default": "3"
+          }
+        }
+      },
+      "reminderEmail": {
+        "type": "object",
+        "default": {},
+        "properties": {
+          "email": {
+            "type": "object",
+            "properties": {
+              "subject": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              },
+              "to": {
+                "$ref": "#/definitions/emailObjectArray"
+              },
+              "pdfattachment": {
+                "type": "string",
+                "default": "0"
+              },
+              "pdfId": {
+                "type": "string",
+                "default": ""
+              },
+              "pdfDocuments": {
+                "type": "array",
+                "default": []
+              },
+              "pdfPassword": {
+                "type": "string",
+                "default": ""
+              },
+              "passwordEnabled": {
+                "type": "string",
+                "default": "0"
+              },
+              "hideEmptyFields": {
+                "type": "string",
+                "default": "1"
+              },
+              "uploadAttachment": {
+                "type": "string",
+                "default": "0"
+              },
+              "uploadAttachmentForms": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "workflow_send_email": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_send_email.json",
+    "title": "Send Email Schema",
+    "description": "Common element properties between other workflow elements",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "emailAddress": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21\\x23-\\x5b\\x5d-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])*\")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x21-\\x5a\\x53-\\x7f]|\\[\\x01-\\x09\\x0b\\x0c\\x0e-\\x7f])+)\\])"
+          },
+          {
+            "type": "string",
+            "pattern": "{[^}]*?}"
+          },
+          {
+            "type": "string",
+            "maxLength": 0
+          }
+        ]
+      },
+      "emailObjectArray": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "$ref": "#/definitions/emailAddress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_send_email",
+        "default": "workflow_send_email"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Email"
+      },
+      "subTypeText": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Send Approval Report"
+      },
+      "fromName": {
+        "type": "string",
+        "decription": "Name will be displayed as source of email",
+        "default": ""
+      },
+      "to": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Recipient email addresses",
+            "default": []
+          }
+        ]
+      },
+      "replyTo": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "Reply To part of sent email",
+            "default": []
+          }
+        ]
+      },
+      "cc": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "CC email addresses",
+            "default": []
+          }
+        ]
+      },
+      "bcc": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/emailObjectArray"
+          },
+          {
+            "description": "BCC email addresses",
+            "default": []
+          }
+        ]
+      },
+      "subject": {
+        "type": "string",
+        "description": "Email subject",
+        "default": "Email"
+      },
+      "content": {
+        "type": "string",
+        "description": "Email Content",
+        "default": ""
+      },
+      "attachment": {
+        "type": "object",
+        "description": "Email attachment url",
+        "default": {},
+        "properties": {
+          "name": {
+            "type": "string",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "default": ""
+          },
+          "url": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
+      "senderEmail": {
+        "anyOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/definitions/emailAddress"
+              },
+              {
+                "description": "Email account / server to be used as mail sender",
+                "default": "noreply@jotform.com"
+              }
+            ]
+          },
+          {
+            "type": "string",
+            "$comment": "TODO: Im not sure if we should include this type... It's currently required because of 'Add New Email Address' option. We need to validate wizard.."
+          }
+        ]
+      },
+      "lastQuestionID": {
+        "type": "string"
+      },
+      "pdfattachment": {
+        "type": "string",
+        "default": "0"
+      },
+      "pdfId": {
+        "type": "string",
+        "default": ""
+      },
+      "pdfDocuments": {
+        "type": "array",
+        "default": []
+      },
+      "pdfPassword": {
+        "type": "string",
+        "default": ""
+      },
+      "passwordEnabled": {
+        "type": "string",
+        "default": "0"
+      },
+      "hideEmptyFields": {
+        "type": "string",
+        "default": "1"
+      },
+      "uploadAttachment": {
+        "type": "string",
+        "default": "0"
+      },
+      "uploadAttachmentForms": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "reportSettings": {
+        "type": "object",
+        "description": "Generated report's settings",
+        "default": {},
+        "properties": {
+          "showAvatars": {
+            "type": "boolean",
+            "default": true
+          },
+          "showAssigneeEmail": {
+            "type": "boolean",
+            "default": true
+          },
+          "showComments": {
+            "type": "boolean",
+            "default": true
+          },
+          "showSignature": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "reportName": {
+        "type": "string",
+        "default": ""
+      },
+      "uploadAttachmentEnable": {
+        "type": "string",
+        "default": "No"
+      }
+    }
+  },
+  "workflow_sign_document": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_sign_document.json",
+    "title": "Assign Document Schema",
+    "description": "Common element properties between other workflow elements",
+    "type": "object",
+    "additionalProperties": false,
+    "definitions": {
+      "empty": {
+        "type": "string",
+        "maxLength": 0
+      },
+      "yesNo": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      }
+    },
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_sign_document",
+        "default": "workflow_sign_document"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Sign Document"
+      },
+      "documentID": {
+        "type": "string",
+        "description": "ID of form to assign"
+      },
+      "hasSigningOrder": {
+        "type": "string",
+        "description": "Do sign element has signing order."
+      },
+      "signerMapping": {
+        "type": "array",
+        "description": "Mapping for signers"
+      },
+      "outcomes": {
+        "type": "array",
+        "default": [
+          {
+            "id": 1,
+            "outcomeID": 1,
+            "type": "SIGNED",
+            "buttonColor": "#7BB60F",
+            "text": "Signed",
+            "textColor": "#fff"
+          },
+          {
+            "id": 2,
+            "outcomeID": 2,
+            "type": "DECLINED",
+            "text": "Declined",
+            "textColor": "#fff",
+            "buttonColor": "#FF2E00"
+          },
+          {
+            "id": 4,
+            "outcomeID": 4,
+            "type": "CANCELED",
+            "text": "Canceled",
+            "textColor": "#fff",
+            "buttonColor": "#FFB629"
+          }
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "number"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "SIGNED",
+                "DECLINED",
+                "CANCELED"
+              ],
+              "description": "Outcome type to detech whether it is possitive or negative"
+            },
+            "text": {
+              "type": "string",
+              "description": "Outcome label text"
+            },
+            "buttonColor": {
+              "type": "string",
+              "description": "Button background color"
+            },
+            "textColor": {
+              "type": "string",
+              "description": "Button text color"
+            },
+            "outcomeSign": {
+              "type": "string",
+              "description": "outcome sign value"
+            }
+          }
+        }
+      }
+    }
+  },
+  "workflow_split": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_split.json",
+    "title": "Split Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_split",
+        "default": "workflow_split"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Split"
+      }
+    }
+  },
+  "workflow_start_point": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_start_point.json",
+    "title": "Start Point Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "const": "workflow_start_point",
+        "default": "workflow_start_point"
+      },
+      "x": {
+        "type": "number"
+      },
+      "y": {
+        "type": "number"
+      },
+      "name": {
+        "type": "string"
+      },
+      "resourceID": {
+        "type": "string"
+      },
+      "resourceType": {
+        "type": "string"
+      },
+      "resourceObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "subType": {
+        "type": "string",
+        "enum": [
+          "",
+          "workflow_start_point_schedule",
+          "workflow_start_point_manual",
+          "workflow_start_point_submission",
+          "workflow_start_point_webhook"
+        ],
+        "default": ""
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_start_point_schedule"
+            }
+          },
+          "required": [
+            "subType"
+          ]
+        },
+        "then": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "On Schedule"
+            },
+            "schedule": {
+              "type": "object",
+              "default": {
+                "end": {
+                  "recurring": "none"
+                },
+                "executeWhen": {
+                  "afterAmount": "1",
+                  "afterUnit": "day",
+                  "customDate": ""
+                }
+              },
+              "required": [
+                "end",
+                "executeWhen"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "end": {
+                  "type": "object",
+                  "default": {
+                    "recurring": "none"
+                  },
+                  "properties": {
+                    "recurring": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "date",
+                        "amount"
+                      ],
+                      "default": "none"
+                    },
+                    "afterUnit": {
+                      "type": "string",
+                      "enum": [
+                        "Date",
+                        "Amount"
+                      ]
+                    },
+                    "afterAmount": {
+                      "type": "string"
+                    },
+                    "customDate": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "executeWhen": {
+                  "type": "object",
+                  "required": [
+                    "afterAmount",
+                    "afterUnit",
+                    "customDate"
+                  ],
+                  "properties": {
+                    "afterAmount": {
+                      "type": "string",
+                      "default": "0"
+                    },
+                    "afterUnit": {
+                      "type": "string",
+                      "enum": [
+                        "hour",
+                        "day",
+                        "weekday",
+                        "weekend",
+                        "week",
+                        "month",
+                        "year"
+                      ]
+                    },
+                    "customDate": {
+                      "type": "string",
+                      "generateDate": true,
+                      "default": ""
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "required": [
+            "schedule"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_start_point_submission"
+            }
+          },
+          "required": [
+            "subType"
+          ]
+        },
+        "then": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "Form"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_start_point_manual"
+            }
+          },
+          "required": [
+            "subType"
+          ]
+        },
+        "then": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "Manual"
+            },
+            "buttonText": {
+              "type": "string",
+              "default": "Run Workflow"
+            },
+            "buttonColor": {
+              "type": "string",
+              "default": "#0075E3"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": "workflow_start_point_webhook"
+            }
+          },
+          "required": [
+            "subType"
+          ]
+        },
+        "then": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "Webhook"
+            },
+            "url": {
+              "type": "string",
+              "default": ""
+            },
+            "method": {
+              "type": "string",
+              "default": "POST"
+            },
+            "sendHeaders": {
+              "type": "boolean",
+              "default": false
+            },
+            "headers": {
+              "type": "array",
+              "default": []
+            },
+            "sendBody": {
+              "type": "boolean",
+              "default": false
+            },
+            "requestMap": {
+              "type": "array",
+              "default": []
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "subType": {
+              "const": ""
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "Starting Point"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "workflow_webhook": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://www.jotform.com/workflow/schemas/workflow_webhook.json",
+    "title": "Webhook Schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Element Type",
+        "const": "workflow_webhook",
+        "default": "workflow_webhook"
+      },
+      "x": {
+        "type": "number",
+        "description": "Position of element on x axis"
+      },
+      "y": {
+        "type": "number",
+        "description": "Position of element on y axis"
+      },
+      "name": {
+        "type": "string",
+        "description": "Label name for elements",
+        "default": "Webhook"
+      },
+      "url": {
+        "type": "string",
+        "default": ""
+      },
+      "method": {
+        "type": "string",
+        "enum": [
+          "GET",
+          "POST",
+          "PUT"
+        ],
+        "default": "GET"
+      },
+      "sendHeaders": {
+        "type": "boolean",
+        "default": false
+      },
+      "headers": {
+        "type": "array",
+        "default": []
+      },
+      "sendParams": {
+        "type": "boolean",
+        "default": false
+      },
+      "queryParamsMap": {
+        "type": "array",
+        "default": []
+      },
+      "requestType": {
+        "type": "string",
+        "enum": [
+          "raw",
+          "json",
+          "formData"
+        ],
+        "default": "json"
+      },
+      "sendBody": {
+        "type": "boolean",
+        "default": false
+      },
+      "requestMap": {
+        "type": "array",
+        "default": []
+      },
+      "responseMap": {
+        "type": "array",
+        "default": []
+      }
+    }
+  }
+}

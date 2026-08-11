@@ -1,0 +1,30 @@
+meta {
+  name: Update Workflow Metadata via public-api (unverified)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/workflow/{{testWorkflowId}}
+  body: json
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+}
+
+body:json {
+  {
+    "title": "Automatic Assignment Workflow"
+  }
+}
+
+docs {
+  UNVERIFIED. The GET on this same api.jotform.com path works with just
+  an apiKey (surprised us, see get-workflow-undocumented.bru) unlike its
+  www.jotform.com/API counterpart which is CSRF-blocked. Does POST here
+  also work? Sends the same title back (non-destructive) so a 200
+  doesn't silently change anything before we've decided this is safe to
+  build a real tool on.
+}

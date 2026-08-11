@@ -1,0 +1,29 @@
+meta {
+  name: Set Resource (expected CSRF block)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/workflow/{{testWorkflowId}}/setResource
+  body: json
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+}
+
+body:json {
+  {
+    "resourceType": "FORM",
+    "resourceID": "{{testFormId}}"
+  }
+}
+
+docs {
+  Confirmed BLOCKED 2026-08-05: "Cross-Site Requests not allowed!" even
+  with a valid apiKey, called outside a browser session. Kept here as a
+  reference / to re-check periodically, not because it's expected to work.
+  Do not try to work around this by spoofing Origin/Referer headers.
+}

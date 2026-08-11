@@ -1,0 +1,28 @@
+meta {
+  name: Update Tree (expected CSRF block)
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/workflow/{{testWorkflowId}}/updateTree
+  body: json
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+}
+
+body:json {
+  {
+    "links": [],
+    "elements": []
+  }
+}
+
+docs {
+  Confirmed BLOCKED 2026-08-05, same reason as set-resource.bru. This is
+  the endpoint that would matter most if a write path is ever found — it
+  carries the actual workflow node/link graph.
+}

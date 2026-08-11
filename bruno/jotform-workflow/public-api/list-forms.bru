@@ -1,0 +1,20 @@
+meta {
+  name: List Forms
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/user/forms
+  body: none
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+}
+
+docs {
+  Confirmed working 2026-08-05. Returns LEGACY-type forms; does not appear
+  to include WORKFLOW-type internal forms — see list-forms-with-workflow-flag.bru.
+}

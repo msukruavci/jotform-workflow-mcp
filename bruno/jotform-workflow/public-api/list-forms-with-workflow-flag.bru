@@ -1,0 +1,23 @@
+meta {
+  name: List Forms (with addWorkflow flag)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/user/forms
+  body: none
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+  filter: {"status:eq":"ENABLED"}
+  addWorkflow: 1
+}
+
+docs {
+  UNVERIFIED. addWorkflow=1 was seen in captured frontend traffic on an
+  internal-bff call, not confirmed here yet. Run this and check whether
+  WORKFLOW-type forms show up that don't in the plain list-forms call.
+}

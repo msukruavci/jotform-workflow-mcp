@@ -1,0 +1,22 @@
+meta {
+  name: Get Workflow (undocumented)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/workflow/{{testWorkflowId}}
+  body: none
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+}
+
+docs {
+  UNVERIFIED for this account. A 2023 Jotform support thread claims this
+  endpoint exists but that access is restricted for a normal user. Run
+  this and record whether you get 200 (usable!), 403 (exists but locked),
+  or 404 (gone) in gap-report.md.
+}

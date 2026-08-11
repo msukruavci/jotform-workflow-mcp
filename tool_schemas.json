@@ -1,0 +1,326 @@
+[
+  {
+    "name": "list_step_types",
+    "description": "List the workflow step types you can add to a workflow.\n\n        Each entry gives the API step_type, the name the Jotform builder shows\n        for it (ui_name), and a one-line description. When a user names a step\n        the way the UI does — \"approval\", \"sign document\" — match on ui_name.\n\n        schema_available=false means this server has no field schema for that\n        type: it can appear in an existing workflow, but get_step_schema will\n        not describe it. Call get_step_schema on a type before configuring it.",
+    "input_schema": {
+      "properties": {
+        "category": {
+          "default": "",
+          "description": "Optional filter — \"basic\" (email, task, approval), \"logic\" (conditions, branching, loops), \"ai\" (AI-powered steps), or \"integration\" (webhooks, payments, signing). Leave empty to see all.",
+          "title": "Category",
+          "type": "string"
+        }
+      },
+      "title": "list_step_typesArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_step_schema",
+    "description": "Get the configurable fields for one workflow step type.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically.",
+    "input_schema": {
+      "properties": {
+        "step_type": {
+          "description": "e.g. \"workflow_send_email\" — get exact names from list_step_types.",
+          "title": "Step Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_type"
+      ],
+      "title": "get_step_schemaArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_workflows",
+    "description": "List the user's workflows.\n\n        Returns each workflow's id, title, status, when it was last updated,\n        and run_count — how many times it has actually run, which is the\n        quickest way to tell a live workflow from an abandoned draft.\n\n        Use the id with get_workflow to see the steps.",
+    "input_schema": {
+      "properties": {},
+      "title": "list_workflowsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_workflow",
+    "description": "Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, or the branch name on a conditional\n        branch. That is how you tell two paths apart. A split's paths are\n        equivalent and carry no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only — use get_step_details for one step's full\n        configuration.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id"
+      ],
+      "title": "get_workflowArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_step_details",
+    "description": "Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "step_id": {
+          "description": "From get_workflow's steps list.",
+          "title": "Step Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "step_id"
+      ],
+      "title": "get_step_detailsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_forms",
+    "description": "List the user's forms, with each form's id, title, status and\n        submission count.\n\n        A workflow is triggered by one of these, so this is usually the first\n        call when working out which form a workflow is about.",
+    "input_schema": {
+      "properties": {},
+      "title": "list_formsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_form_fields",
+    "description": "List a form's fields (questions), with each field's id, label, type\n        and whether it is required.\n\n        Needed for two things: picking which field a condition should test,\n        and picking which field holds the email address when sending mail to\n        the person who submitted the form.",
+    "input_schema": {
+      "properties": {
+        "form_id": {
+          "description": "From list_forms.",
+          "title": "Form Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "form_id"
+      ],
+      "title": "get_form_fieldsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "create_workflow",
+    "description": "Create a new, empty workflow with a start point.\n\n        Returns the new workflow_id. Use add_step to start adding steps.",
+    "input_schema": {
+      "properties": {
+        "title": {
+          "description": "Workflow name.",
+          "title": "Title",
+          "type": "string"
+        },
+        "trigger_form_id": {
+          "default": "",
+          "description": "Optional — the form (from list_forms) whose submissions should trigger this workflow. Confirmed 2026-08-10: binding a trigger form is NOT possible through the public API — the call reports success but changes nothing. If you pass this and it can't be bound, the workflow is still created and the result explains the user must set it manually in the Jotform builder (Settings -> trigger form, or drag a form onto the start point).",
+          "title": "Trigger Form Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "create_workflowArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "add_step",
+    "description": "Add a step to a workflow.\n\n        Returns the new step_id. Position on the canvas is chosen\n        automatically.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "step_type": {
+          "description": "From list_step_types, e.g. \"workflow_send_email\".",
+          "title": "Step Type",
+          "type": "string"
+        },
+        "config": {
+          "additionalProperties": true,
+          "description": "Fields for this step type — call get_step_schema first to see what it accepts. Unknown fields are dropped, not rejected; check `warnings` in the result.",
+          "title": "Config",
+          "type": "object"
+        },
+        "after_step_id": {
+          "default": "",
+          "description": "Optional — if given, connects this step directly after that one. Only works when after_step_id doesn't already have an outgoing connection (a step with more than one exit needs deliberate wiring — use connect_steps for that, with an outcome if the source branches).",
+          "title": "After Step Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "step_type",
+        "config"
+      ],
+      "title": "add_stepArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connect_steps",
+    "description": "Connect two existing steps.\n\n        Fails without changing anything if the outcome doesn't exist, is\n        already connected elsewhere, or is missing when required.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "from_step_id": {
+          "description": "From get_workflow's steps list.",
+          "title": "From Step Id",
+          "type": "string"
+        },
+        "to_step_id": {
+          "description": "From get_workflow's steps list.",
+          "title": "To Step Id",
+          "type": "string"
+        },
+        "outcome": {
+          "default": "",
+          "description": "Required if from_step_id is an if/else or conditional branch step — e.g. \"TRUE\", \"FALSE\", or a custom branch name. Check get_workflow's connections or get_step_details on from_step_id to see what outcomes exist and which are already used. Leave empty for non-branching steps.",
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "from_step_id",
+        "to_step_id"
+      ],
+      "title": "connect_stepsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "update_step",
+    "description": "Change an existing step's configuration.\n\n        Does not move the step or change its connections — use connect_steps\n        for wiring.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "step_id": {
+          "description": "From get_workflow's steps list.",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "config": {
+          "additionalProperties": true,
+          "description": "Only the fields to change — call get_step_details first to see current values, get_step_schema for valid fields.",
+          "title": "Config",
+          "type": "object"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "step_id",
+        "config"
+      ],
+      "title": "update_stepArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "delete_step",
+    "description": "Delete a step from a workflow. Irreversible.\n\n        First call (confirm=false) changes nothing and returns the step's\n        type, label, and every connection that would break. Second call\n        (confirm=true) actually deletes it.\n\n        Confirmed (probes/test_delete_impact.py, 2026-08-10): Jotform does\n        NOT remove a step's connections when the step is deleted — this\n        tool deletes them explicitly, in the same request, so no broken\n        links are left behind.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "step_id": {
+          "description": "From get_workflow's steps list.",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "confirm": {
+          "default": false,
+          "description": "Leave false to preview what deleting this step would affect. Only pass true after showing that preview to the user and getting their explicit go-ahead — never set this based on your own judgement that it's probably fine.",
+          "title": "Confirm",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "step_id"
+      ],
+      "title": "delete_stepArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "publish_workflow",
+    "description": "Publish a workflow, making it live — from this point on, matching\n        form submissions actually run it.\n\n        First call (confirm=false) changes nothing. It runs the same health\n        check as get_workflow — unreachable steps, dead ends, unlabelled\n        branches — and returns them as warnings. A workflow with warnings\n        can still be published; the warnings exist so the user finds out\n        about a broken branch from you, before it goes live, rather than\n        from a submission that silently went nowhere.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "confirm": {
+          "default": false,
+          "description": "Leave false to check the workflow's structure and see what publishing would do. Only pass true after showing that to the user and getting their explicit go-ahead.",
+          "title": "Confirm",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "workflow_id"
+      ],
+      "title": "publish_workflowArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "delete_workflow",
+    "description": "Delete an entire workflow. Irreversible, and bigger than delete_step\n        — this removes every step in it.\n\n        First call (confirm=false) changes nothing and returns the title\n        to show the user. Second call needs both confirm=true and\n        confirm_title matching exactly.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "confirm": {
+          "default": false,
+          "description": "Leave false to preview. Only true after the user explicitly says to proceed.",
+          "title": "Confirm",
+          "type": "boolean"
+        },
+        "confirm_title": {
+          "default": "",
+          "description": "Required alongside confirm=true — must exactly match the workflow's current title (returned in the preview). This exists because workflow titles are often similar or duplicated; matching by id alone made it easy to delete the wrong one by picking the wrong list index. Read the title back to the user and use what they confirm, don't retype it from memory.",
+          "title": "Confirm Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id"
+      ],
+      "title": "delete_workflowArguments",
+      "type": "object"
+    }
+  }
+]

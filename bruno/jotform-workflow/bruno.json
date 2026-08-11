@@ -1,0 +1,6 @@
+{
+  "version": "1",
+  "name": "jotform-workflow",
+  "type": "collection",
+  "ignore": ["node_modules", ".git"]
+}

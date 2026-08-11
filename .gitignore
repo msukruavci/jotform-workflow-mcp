@@ -1,0 +1,20 @@
+# Python önbellek dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sanal ortam (Virtual Environment)
+.venv/
+venv/
+env/
+
+# Loglar ve geçici test çıktıları
+agent/logs/
+*.log
+probes/*_result.json
+probes/links_raw.json
+probes/findings/
+
+# Çevre değişkenleri ve gizli dosyalar (API anahtarlarınız buradaysa)
+.env
+.DS_Store

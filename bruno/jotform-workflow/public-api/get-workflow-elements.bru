@@ -1,0 +1,22 @@
+meta {
+  name: Get Workflow Elements (confirmed working)
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/workflow/{{testWorkflowId}}/elements
+  body: none
+  auth: none
+}
+
+params:query {
+  apiKey: {{apiKey}}
+}
+
+docs {
+  Confirmed working 2026-08-06. Returns the workflow's node graph. /tree,
+  /flow, /structure all 404. Check whether /links or /connections also
+  return anything — if not, look for a next/target/parent field inside
+  each element here instead.
+}

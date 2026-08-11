@@ -1,0 +1,289 @@
+{
+  "source": "https://raw.githubusercontent.com/jotform/jotform-api-python/master/jotform.py",
+  "endpoint_count": 47,
+  "workflow_endpoint_count": 0,
+  "endpoints": [
+    {
+      "client_method": "get_user",
+      "http_method": "GET",
+      "path_template": "/user",
+      "mutating": false
+    },
+    {
+      "client_method": "get_usage",
+      "http_method": "GET",
+      "path_template": "/user/usage",
+      "mutating": false
+    },
+    {
+      "client_method": "get_forms",
+      "http_method": "GET",
+      "path_template": "/user/forms",
+      "mutating": false
+    },
+    {
+      "client_method": "get_submissions",
+      "http_method": "GET",
+      "path_template": "/user/submissions",
+      "mutating": false
+    },
+    {
+      "client_method": "get_subusers",
+      "http_method": "GET",
+      "path_template": "/user/subusers",
+      "mutating": false
+    },
+    {
+      "client_method": "get_folders",
+      "http_method": "GET",
+      "path_template": "/user/folders",
+      "mutating": false
+    },
+    {
+      "client_method": "get_reports",
+      "http_method": "GET",
+      "path_template": "/user/reports",
+      "mutating": false
+    },
+    {
+      "client_method": "get_settings",
+      "http_method": "GET",
+      "path_template": "/user/settings",
+      "mutating": false
+    },
+    {
+      "client_method": "update_settings",
+      "http_method": "POST",
+      "path_template": "/user/settings",
+      "mutating": true
+    },
+    {
+      "client_method": "get_history",
+      "http_method": "GET",
+      "path_template": "/user/history",
+      "mutating": false
+    },
+    {
+      "client_method": "get_form",
+      "http_method": "GET",
+      "path_template": "/form/{formID}",
+      "mutating": false
+    },
+    {
+      "client_method": "get_form_questions",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/questions",
+      "mutating": false
+    },
+    {
+      "client_method": "get_form_question",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/question/{qid}",
+      "mutating": false
+    },
+    {
+      "client_method": "get_form_submissions",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/submissions",
+      "mutating": false
+    },
+    {
+      "client_method": "create_form_submission",
+      "http_method": "POST",
+      "path_template": "/form/{formID}/submissions",
+      "mutating": true
+    },
+    {
+      "client_method": "create_form_submissions",
+      "http_method": "PUT",
+      "path_template": "/form/{formID}/submissions",
+      "mutating": true
+    },
+    {
+      "client_method": "get_form_files",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/files",
+      "mutating": false
+    },
+    {
+      "client_method": "get_form_webhooks",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/webhooks",
+      "mutating": false
+    },
+    {
+      "client_method": "create_form_webhook",
+      "http_method": "POST",
+      "path_template": "/form/{formID}/webhooks",
+      "mutating": true
+    },
+    {
+      "client_method": "delete_form_webhook",
+      "http_method": "DELETE",
+      "path_template": "/form/{formID}/webhooks/{webhookID}",
+      "mutating": true
+    },
+    {
+      "client_method": "get_submission",
+      "http_method": "GET",
+      "path_template": "/submission/{sid}",
+      "mutating": false
+    },
+    {
+      "client_method": "get_report",
+      "http_method": "GET",
+      "path_template": "/report/{reportID}",
+      "mutating": false
+    },
+    {
+      "client_method": "get_folder",
+      "http_method": "GET",
+      "path_template": "/folder/{folderID}",
+      "mutating": false
+    },
+    {
+      "client_method": "create_folder",
+      "http_method": "POST",
+      "path_template": "/folder",
+      "mutating": true
+    },
+    {
+      "client_method": "delete_folder",
+      "http_method": "DELETE",
+      "path_template": "/folder/{folderID}",
+      "mutating": true
+    },
+    {
+      "client_method": "update_folder",
+      "http_method": "PUT",
+      "path_template": "/folder/{folderID}",
+      "mutating": true
+    },
+    {
+      "client_method": "get_form_properties",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/properties",
+      "mutating": false
+    },
+    {
+      "client_method": "get_form_property",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/properties/{propertyKey}",
+      "mutating": false
+    },
+    {
+      "client_method": "get_form_reports",
+      "http_method": "GET",
+      "path_template": "/form/{formID}/reports",
+      "mutating": false
+    },
+    {
+      "client_method": "create_report",
+      "http_method": "POST",
+      "path_template": "/form/{formID}/reports",
+      "mutating": true
+    },
+    {
+      "client_method": "delete_submission",
+      "http_method": "DELETE",
+      "path_template": "/submission/{sid}",
+      "mutating": true
+    },
+    {
+      "client_method": "edit_submission",
+      "http_method": "POST",
+      "path_template": "/submission/{sid}",
+      "mutating": true
+    },
+    {
+      "client_method": "clone_form",
+      "http_method": "POST",
+      "path_template": "/form/{formID}/clone",
+      "mutating": true
+    },
+    {
+      "client_method": "delete_form_question",
+      "http_method": "DELETE",
+      "path_template": "/form/{formID}/question/{qid}",
+      "mutating": true
+    },
+    {
+      "client_method": "create_form_question",
+      "http_method": "POST",
+      "path_template": "/form/{formID}/questions",
+      "mutating": true
+    },
+    {
+      "client_method": "create_form_questions",
+      "http_method": "PUT",
+      "path_template": "/form/{formID}/questions",
+      "mutating": true
+    },
+    {
+      "client_method": "edit_form_question",
+      "http_method": "POST",
+      "path_template": "/form/{formID}/question/{qid}",
+      "mutating": true
+    },
+    {
+      "client_method": "set_form_properties",
+      "http_method": "POST",
+      "path_template": "/form/{formID}/properties",
+      "mutating": true
+    },
+    {
+      "client_method": "set_multiple_form_properties",
+      "http_method": "PUT",
+      "path_template": "/form/{formID}/properties",
+      "mutating": true
+    },
+    {
+      "client_method": "create_form",
+      "http_method": "POST",
+      "path_template": "/user/forms",
+      "mutating": true
+    },
+    {
+      "client_method": "create_forms",
+      "http_method": "PUT",
+      "path_template": "/user/forms",
+      "mutating": true
+    },
+    {
+      "client_method": "delete_form",
+      "http_method": "DELETE",
+      "path_template": "/form/{formID}",
+      "mutating": true
+    },
+    {
+      "client_method": "register_user",
+      "http_method": "POST",
+      "path_template": "/user/register",
+      "mutating": true
+    },
+    {
+      "client_method": "login_user",
+      "http_method": "POST",
+      "path_template": "/user/login",
+      "mutating": true
+    },
+    {
+      "client_method": "logout_user",
+      "http_method": "GET",
+      "path_template": "/user/logout",
+      "mutating": false
+    },
+    {
+      "client_method": "get_plan",
+      "http_method": "GET",
+      "path_template": "/system/plan/{plan_name}",
+      "mutating": false
+    },
+    {
+      "client_method": "delete_report",
+      "http_method": "DELETE",
+      "path_template": "/report/{reportID}",
+      "mutating": true
+    }
+  ]
+}
