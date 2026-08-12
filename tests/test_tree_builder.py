@@ -8,6 +8,7 @@ a change here should fail a test before it reaches a live account.
 import pytest
 
 from mcp_server import tree_builder as tb
+from mcp_server import schema_registry as sr
 
 
 # --- id allocation ----------------------------------------------------
@@ -244,3 +245,60 @@ def test_defaults_do_not_leak_across_calls():
     a["data"]["outcomes"][0]["text"] = "MUTATED"
     b = tb.build_element_create("workflow_assign_task", 3, {}, {"x": 0, "y": 0})
     assert b["data"]["outcomes"][0]["text"] == "Complete"
+
+
+# --- workflow_approval branching: a real gap found via ChatGPT testing ------
+# 2026-08-11. A tester's checklist expected "connect the Approve outcome"
+# to work the same way it does on an if/else. It didn't, for two separate,
+# stacked reasons — both confirmed against real data, neither guessed:
+#
+#   1. workflow_approval was never in BRANCHING_TYPES, so connect_steps
+#      didn't even recognise it as a step that branches.
+#   2. Its outcome objects carry no `conditionValue` at all — they use
+#      `text`/`type` instead (workflow_binary_decision's field). Fixing (1)
+#      alone would still fail every match.
+#
+# The verified defaults below are copied from probes/inspect_approval_outcomes.py's
+# real output against an actual approval step, with `linkID` stripped (that
+# value belonged to an already-wired instance; carrying it into a fresh
+# step's default would make resolve_outcome think Approve/Deny were already
+# connected to something that doesn't exist for a new step).
+
+def test_workflow_approval_is_now_branching():
+    assert "workflow_approval" in sr.BRANCHING_TYPES
+
+
+def test_workflow_approval_gets_verified_approve_deny_defaults():
+    entry = tb.build_element_create("workflow_approval", 2, {}, {"x": 0, "y": 0})
+    outcomes = entry["data"]["outcomes"]
+    types = {o["type"] for o in outcomes}
+    assert types == {"APPROVE", "DENY"}
+    assert all("linkID" not in o for o in outcomes)  # never a stale link
+
+
+def test_resolve_outcome_matches_approval_by_text_not_conditionvalue():
+    el = {"outcomes": [
+        {"outcomeID": 1, "type": "APPROVE", "text": "Approve"},
+        {"outcomeID": 2, "type": "DENY", "text": "Deny"},
+    ]}
+    assert tb.resolve_outcome(el, "approve")["outcomeID"] == 1
+    assert tb.resolve_outcome(el, "Deny")["outcomeID"] == 2
+
+
+def test_resolve_outcome_falls_back_to_type_if_no_text():
+    el = {"outcomes": [{"outcomeID": 1, "type": "APPROVE"}]}
+    assert tb.resolve_outcome(el, "APPROVE")["outcomeID"] == 1
+
+
+def test_resolve_outcome_still_prefers_conditionvalue_for_decisions():
+    """The generalisation must not break the original, most common case."""
+    el = {"outcomes": [{"outcomeID": 1, "conditionValue": "TRUE"}]}
+    assert tb.resolve_outcome(el, "true")["outcomeID"] == 1
+
+
+def test_resolve_outcome_error_lists_real_labels_not_none():
+    """Before the fix, an unmatched approval outcome error showed
+    "Available: [None, None]" — useless to whoever reads it."""
+    el = {"outcomes": [{"outcomeID": 1, "type": "APPROVE", "text": "Approve"}]}
+    with pytest.raises(tb.ValidationError, match="Approve"):
+        tb.resolve_outcome(el, "Maybe")

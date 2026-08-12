@@ -27,6 +27,7 @@ from mcp.server import MCPServer
 from pydantic import Field
 
 from mcp_server import graph, schema_registry
+from mcp_server import tree_builder as tb
 from mcp_server.schema_registry import BRANCHING_TYPES
 from mcp_server.jotform_client import JotformClient, JotformAPIError
 from mcp_server.models import (
@@ -41,6 +42,18 @@ def _outcome_map(elements: list[dict]) -> tuple[dict[str, str], list[str]]:
     Also returns branches that are defined but wired to nothing: an if/else
     with a FALSE outcome and no linkID has a path the user drew in their head
     but not on the canvas. Jotform's builder flags this; the API does not.
+
+    Labelling goes through tree_builder.outcome_label, not a raw
+    `conditionValue` read here — the same field priority connect_steps
+    uses to resolve an outcome by name, kept in one place so the two can't
+    drift apart. This matters concretely for workflow_conditional_branch:
+    every *named* custom branch shares the literal conditionValue
+    "CUSTOM" — the real, human label lives in `branchName` instead.
+    Reading conditionValue directly here would have labelled three
+    different branches all "CUSTOM" in get_workflow's connection list,
+    same bug as connect_steps had before outcome_label existed. Confirmed
+    2026-08-12 against a real conditional-branch element
+    (probes/inspect_conditional_branch_outcomes.py).
     """
     mapping: dict[str, str] = {}
     unconnected: list[str] = []
@@ -52,7 +65,7 @@ def _outcome_map(elements: list[dict]) -> tuple[dict[str, str], list[str]]:
         for outcome in el.get("outcomes") or []:
             if not isinstance(outcome, dict):
                 continue
-            label = outcome.get("conditionValue") or outcome.get("value")
+            label = tb.outcome_label(outcome)
             link_id = outcome.get("linkID")
             if link_id in (None, 0, "0", ""):
                 unconnected.append(f"step {step_id} {label or outcome.get('outcomeID')}")

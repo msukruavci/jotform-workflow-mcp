@@ -131,14 +131,37 @@ UI_NAMES = {
 # Builder-UI elements we have seen but cannot map to any known type.
 # Listed so the gap report has a concrete to-do rather than a vague
 # "schemas may be incomplete".
-UNMAPPED_UI_ELEMENTS = ["Approve & Sign", "Team Approval", "Flow Report", "PDF"]
+UNMAPPED_UI_ELEMENTS = ["Team Approval", "Flow Report", "PDF"]
+
+# "Approve & Sign" was in this list until 2026-08-11 — confirmed NOT
+# unmapped. It's workflow_approval with subType "workflow_approval_with_sign",
+# found by reading a real, working approval step's raw element data
+# (probes/inspect_approval_outcomes.py), not guessed. A ChatGPT test session
+# had independently guessed "workflow_approve_sign" for this — close, but
+# wrong; the confirmed value differs by one character
+# ("workflow_approval_with_sign"). Worth remembering: a subType string that
+# merely sounds plausible is exactly the kind of thing this project avoids
+# fabricating elsewhere (form field ids, emails) — the same discipline
+# applies here, and this near-miss is why.
+#
+# "Team Approval"'s real subType is still unconfirmed — do not guess it.
+# validate_config has no enum constraint on subType (it's a free string on
+# every step schema that has one), so a wrong guess is silently accepted at
+# creation time with no error — the same "accepted but not necessarily
+# correct" pattern documented for link ports and setResource. It likely
+# surfaces later as a mismatch between what the element claims to be and
+# what real elements of that kind actually look like (plausibly the cause
+# of the 404 seen wiring a guessed-subType "Team Approval" step's outcomes —
+# unconfirmed without the same ground-truth check run against a real one).
 
 # Step types where an outgoing link's meaning depends on which named outcome
 # it fulfils (TRUE/FALSE, or a custom branch name) rather than just existing.
 # Shared between reading.py (labelling connections) and tree_builder.py
 # (deciding when connect_steps requires an `outcome` argument) — defined
 # once here so the two can't drift apart.
-BRANCHING_TYPES = {"workflow_binary_decision", "workflow_conditional_branch"}
+BRANCHING_TYPES = {
+    "workflow_binary_decision", "workflow_conditional_branch", "workflow_approval",
+}
 
 _raw_schemas: dict[str, Any] | None = None
 
@@ -258,6 +281,18 @@ def get_simplified_schema(step_type: str) -> dict[str, Any] | None:
     # model that's trying to decide what a step should *do*.
     fields = [f for f in fields if f["name"] not in ("x", "y")]
 
+    # `outcomes` on a handful of step types is declared in the raw schema
+    # as a bare array with no `items` sub-schema — _simplify_property has
+    # nothing to build item_fields from, so the model would see only
+    # {"name": "outcomes", "type": "array"} and have to guess the object
+    # shape to add a step with real branches. _OUTCOME_ITEM_FIELDS_OVERRIDE
+    # below fills that in for step types where it's been confirmed against
+    # a real, working element — never guessed.
+    if step_type in _OUTCOME_ITEM_FIELDS_OVERRIDE:
+        for f in fields:
+            if f["name"] == "outcomes" and not f.get("item_fields"):
+                f["item_fields"] = _OUTCOME_ITEM_FIELDS_OVERRIDE[step_type]
+
     return {
         "step_type": step_type,
         "description": DESCRIPTIONS.get(step_type, schema.get("title", "")),
@@ -301,6 +336,17 @@ def get_field_defaults(step_type: str) -> dict[str, Any]:
     `name` key at all and rendered fine — a real element only carries one
     if its creator actually renamed it. Injecting a generic default would
     be a needless deviation from what a real Jotform element looks like.
+
+    Second layer, added 2026-08-11: some step types have a real, working
+    `outcomes` mechanism whose schema simply declares no `default` at all
+    — workflow_approval confirmed via probes/inspect_approval_outcomes.py.
+    A workflow_approval created without an explicit outcomes array has
+    nothing for connect_steps to wire Approve/Deny to, same failure shape
+    as the branching-type bug above, but the schema-reading approach can't
+    fix it because there's no schema default to read. _OUTCOMES_OVERRIDE
+    below holds hand-verified defaults for exactly these cases, sourced
+    from a real element's actual data — never guessed — and only applies
+    when the schema itself provided nothing.
     """
     raw = get_raw_schema(step_type) or {}
     defaults: dict[str, Any] = {}
@@ -310,7 +356,71 @@ def get_field_defaults(step_type: str) -> dict[str, Any]:
         flat = _flatten_all_of(prop) if "allOf" in prop else prop
         if "default" in flat:
             defaults[name] = copy.deepcopy(flat["default"])
+
+    if "outcomes" not in defaults and step_type in _OUTCOMES_OVERRIDE:
+        defaults["outcomes"] = copy.deepcopy(_OUTCOMES_OVERRIDE[step_type])
+
     return defaults
+
+
+# Hand-verified outcomes defaults for step types whose schema declares none.
+# Sourced from a real, working element's actual data (get_element on a real
+# workflow_approval step, probes/inspect_approval_outcomes.py, 2026-08-11) —
+# linkID stripped, since that value belongs to that one already-wired
+# instance and would make every freshly created approval step look like its
+# Approve/Deny were already connected, which resolve_outcome would then
+# refuse to wire to anything.
+_OUTCOMES_OVERRIDE: dict[str, list[dict]] = {
+    "workflow_approval": [
+        {"id": 1, "outcomeID": 1, "type": "APPROVE", "text": "Approve",
+         "buttonColor": "#01bd6f", "textColor": "#fff", "outcomeSign": "Yes"},
+        {"id": 2, "outcomeID": 2, "type": "DENY", "text": "Deny",
+         "buttonColor": "#D53049", "textColor": "#fff", "outcomeSign": "No"},
+    ],
+}
+
+
+# Hand-verified shape for one entry of a workflow_conditional_branch's
+# `outcomes` array, sourced from a real element with three named custom
+# branches (get_element on a real workflow_conditional_branch step,
+# probes/inspect_conditional_branch_outcomes.py, 2026-08-12) — never
+# guessed. This only covers a *custom* branch (conditionValue "CUSTOM");
+# the schema declares no default at all for outcomes on this type (unlike
+# workflow_approval, which at least had a real default), so there is no
+# starting point to build a new named branch from without this.
+#
+# `branchName` is the human label — NOT conditionValue, which is the
+# fixed literal "CUSTOM" on every custom branch and cannot distinguish
+# them (this was the actual bug behind connect_steps failing to resolve
+# a branch by name; see tree_builder.outcome_label). `conditionTerms[].field`
+# must be a real form field id from get_form_fields — this override
+# describes the shape, it does not supply or invent field ids.
+#
+# Not injected via get_field_defaults (unlike _OUTCOMES_OVERRIDE above):
+# a conditional branch's whole point is user-chosen names and conditions,
+# so auto-filling a default branch would be actively wrong, not just
+# unhelpful. This is exposed instead as an item_fields hint on
+# get_step_schema, for the model to fill in and pass explicitly in
+# add_step's config.
+_OUTCOME_ITEM_FIELDS_OVERRIDE: dict[str, dict[str, str]] = {
+    "workflow_conditional_branch": {
+        "branchName": "string — the label shown on this branch, e.g. \"High priority\"",
+        "conditionValue": (
+            'string — always the literal "CUSTOM" for a named branch. '
+            "This is NOT the branch name (that's branchName) — every "
+            "custom branch on the same step shares this same value."
+        ),
+        "conditionTermsMatchType": 'string — "All" (AND) or "Any" (OR) across conditionTerms',
+        "conditionTerms": (
+            "array of {field, operator, value} — field must be a real "
+            "form field id from get_form_fields, never invented. Confirmed "
+            'operators seen in real data: "isEmpty", "isFilled". Others '
+            "(e.g. equality/comparison operators) are plausible but "
+            "unconfirmed — verify against a real element before relying "
+            "on one not listed here."
+        ),
+    },
+}
 
 
 def list_types(category: str | None = None) -> list[dict[str, Any]]:

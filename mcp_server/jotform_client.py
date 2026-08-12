@@ -141,10 +141,38 @@ class JotformClient:
         ).get("content", {})
 
     def set_trigger_form(self, workflow_id: str, form_id: str) -> dict:
-        return self._request(
-            "POST", f"/workflow/{workflow_id}/setResource",
-            json_body={"resourceType": "FORM", "resourceID": form_id},
-        ).get("content", {})
+        """
+        Binds a specific form to a workflow's starting point (Element 1).
+        Based on UI behavior, this requires two sequential API calls.
+        """
+        # Adım 1: Workspace/İlişki kaydı için setResource çağrısı
+        set_resource_url = f"/workflow/{workflow_id}/setResource"
+        resource_payload = {
+            "resourceType": "FORM",
+            "resourceID": form_id
+        }
+        self._request("POST", set_resource_url, json_body=resource_payload)
+
+        # Adım 2: Canvas üzerindeki başlangıç noktasını (Element 1) güncelleme
+        update_tree_url = f"/workflow/{workflow_id}/updateTree"
+        tree_payload = {
+            "links": [],
+            "elements": [
+                {
+                    "elementID": 1,
+                    "action": "update",
+                    "data": {
+                        "resourceID": form_id,
+                        "resourceType": "FORM",
+                        "element_id": 1,
+                        "subType": "workflow_start_point_submission"
+                    }
+                }
+            ]
+        }
+        
+        # Asıl bağlama işleminin yapıldığı updateTree çağrısını döndürüyoruz
+        return self._request("PUT", update_tree_url, json_body=tree_payload).get("content", {})
 
     def publish_workflow(self, workflow_id: str) -> dict:
         return self._request("POST", f"/workflow/{workflow_id}/publish").get("content", {})

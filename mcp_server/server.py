@@ -7,8 +7,10 @@ Tool layers:
   1. discovery — list_step_types, get_step_schema
   2. reading   — list_workflows, get_workflow, get_step_details,
                  list_forms, get_form_fields
-  3. building  — create_workflow, add_step, connect_steps, update_step
-  4. risky     — delete_step, publish_workflow (confirm=True required to act)
+  3. building  — create_workflow, add_step, connect_steps,
+                 disconnect_steps, update_step
+  4. risky     — delete_step, publish_workflow, delete_workflow
+                 (confirm=True required to act on any of the three)
 """
 from dotenv import load_dotenv
 from mcp.server import MCPServer

@@ -220,10 +220,41 @@ def build_link_create(link_id: int, from_id: int | str, to_id: int | str) -> dic
     return {"action": "create", "linkID": link_id, "data": data}
 
 
+# Different step types put an outcome's human-readable label under
+# different keys. workflow_binary_decision uses `conditionValue` directly
+# ("TRUE"/"FALSE") and so does the catch-all branch on
+# workflow_conditional_branch ("OTHER"). But a *named* branch on
+# conditional_branch is different: `conditionValue` is a fixed constant
+# ("CUSTOM") on every custom branch — identical across all of them — the
+# actual human name lives in `branchName`. Confirmed 2026-08-12 against a
+# real conditional-branch element with three named branches
+# (probes/inspect_conditional_branch_outcomes.py): checking conditionValue
+# first, as this used to, made every custom branch resolve to the literal
+# string "CUSTOM" — connect_steps could never find "branch 1" by name, and
+# always wired to whichever custom branch happened to come first. `text`/
+# `type` (workflow_approval's "Approve"/"Deny") stay as later fallbacks,
+# checked in this order because `text` is what a person would naturally
+# say; `type` is closer to an internal enum.
+_OUTCOME_LABEL_FIELDS = ("branchName", "conditionValue", "text", "type")
+
+
+def outcome_label(outcome: dict) -> str | None:
+    for field in _OUTCOME_LABEL_FIELDS:
+        value = outcome.get(field)
+        if value:
+            return str(value)
+    return None
+
+
 def resolve_outcome(source_element: dict, outcome: str) -> dict:
     """
     Find the outcome entry on a branching element matching the requested
-    label (case-insensitive) — e.g. "true" matches conditionValue "TRUE".
+    label (case-insensitive) — e.g. "true" matches conditionValue "TRUE",
+    "approve" matches a workflow_approval outcome's text "Approve",
+    "branch 1" matches a conditional-branch outcome's branchName. Matching
+    strips whitespace as well as case — a real branchName was found with
+    a trailing space ("branch 1 ") from how the user typed it in the
+    builder, and a caller passing the clean name should still match it.
 
     Raises ValidationError, listing what's actually available, rather than
     silently connecting the wrong branch or creating an outcome that
@@ -235,11 +266,11 @@ def resolve_outcome(source_element: dict, outcome: str) -> dict:
     outcomes = source_element.get("outcomes") or []
     match = next(
         (o for o in outcomes
-         if str(o.get("conditionValue", "")).lower() == outcome.lower()),
+         if (outcome_label(o) or "").strip().lower() == outcome.strip().lower()),
         None,
     )
     if match is None:
-        available = [o.get("conditionValue") for o in outcomes]
+        available = [outcome_label(o) for o in outcomes]
         raise ValidationError(
             f"'{outcome}' is not an outcome on this step. Available: {available}"
         )
@@ -256,10 +287,38 @@ def _target_of_link(link_id):  # pragma: no cover - message text only
     return f"link {link_id}"
 
 
-def build_outcome_update(source_element: dict, outcome_id, link_id: int) -> dict:
+def build_link_delete(link_id: int | str) -> dict:
     """
-    The `elements[]` entry that wires an existing outcome to a new link.
-    Sends the *whole* outcomes array back, with only the matching entry's
+    The `links[]` entry for removing an existing link. Same shape
+    risky.py's delete_step already uses to clean up incident links when
+    a step is deleted (probes/test_delete_impact.py, 2026-08-10) —
+    reused here for disconnect_steps, which removes a single link
+    without deleting either step.
+    """
+    return {"action": "delete", "linkID": link_id, "data": {"link_id": link_id}}
+
+
+def find_outcome_by_link(source_element: dict, link_id) -> dict | None:
+    """
+    Reverse of resolve_outcome: given a link_id, find which outcome on a
+    branching element currently points at it. Used by disconnect_steps to
+    know which outcome to clear — without this, deleting the link alone
+    would leave the source element's outcome pointing at a link_id that no
+    longer exists, which resolve_outcome would then wrongly read as "still
+    connected" (blocking a future connect_steps call), and graph.py's
+    dangling_links check would separately start flagging it.
+    """
+    for o in (source_element.get("outcomes") or []):
+        if isinstance(o, dict) and str(o.get("linkID")) == str(link_id):
+            return o
+    return None
+
+
+def build_outcome_update(source_element: dict, outcome_id, link_id: int | None) -> dict:
+    """
+    The `elements[]` entry that (re)wires an outcome's link, or clears it
+    entirely when link_id is None — same write, either direction. Sends
+    the *whole* outcomes array back, with only the matching entry's
     linkID changed — updateTree edits fields wholesale, so a partial
     outcomes list would drop the others.
     """

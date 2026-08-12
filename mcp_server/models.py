@@ -201,6 +201,23 @@ class ConnectStepsResult(BaseModel):
     hint: str | None = None
 
 
+class DisconnectStepsResult(BaseModel):
+    link_id: str | None = None
+    from_step: str | None = Field(
+        None, description="The step the removed link used to leave from"
+    )
+    outcome_cleared: str | None = Field(
+        None,
+        description=(
+            "If from_step branches, the outcome whose link was cleared "
+            "so it can be wired to something else with connect_steps. "
+            "None if from_step doesn't branch."
+        ),
+    )
+    disconnected: bool = False
+    error: str | None = None
+
+
 class UpdateStepResult(BaseModel):
     step_id: str | None = None
     warnings: list[str] = Field(default_factory=list)

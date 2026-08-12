@@ -21,7 +21,8 @@ from pydantic import Field
 from mcp_server import schema_registry, tree_builder as tb
 from mcp_server.jotform_client import JotformAPIError, JotformClient
 from mcp_server.models import (
-    AddStepResult, ConnectStepsResult, CreateWorkflowResult, UpdateStepResult,
+    AddStepResult, ConnectStepsResult, CreateWorkflowResult,
+    DisconnectStepsResult, UpdateStepResult,
 )
 
 
@@ -32,13 +33,14 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         trigger_form_id: Annotated[str, Field(
             description=(
                 "Optional — the form (from list_forms) whose submissions "
-                "should trigger this workflow. Confirmed 2026-08-10: binding "
-                "a trigger form is NOT possible through the public API — "
-                "the call reports success but changes nothing. If you pass "
-                "this and it can't be bound, the workflow is still created "
-                "and the result explains the user must set it manually in "
-                "the Jotform builder (Settings -> trigger form, or drag a "
-                "form onto the start point)."
+                "should trigger this workflow. Binding takes two API calls "
+                "under the hood (see JotformClient.set_trigger_form) and "
+                "the result is verified by reading the start point back — "
+                "never trusted from the write response alone. If "
+                "verification fails, the workflow is still created and the "
+                "result explains the user needs to set the trigger form "
+                "manually in the Jotform builder (Settings -> trigger "
+                "form, or drag a form onto the start point)."
             )
         )] = "",
     ) -> CreateWorkflowResult:
@@ -57,31 +59,43 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             return CreateWorkflowResult(error=f"No workflow id in response: {created!r}")
 
         if trigger_form_id:
-            # Known no-op on the public API (see docstring). Still call it —
-            # in case Jotform ever fixes this — but never trust the response
-            # alone. Read the start point back and check whether the form id
-            # actually landed before claiming success.
             try:
                 client.set_trigger_form(workflow_id, trigger_form_id)
-                elements = client.get_elements(workflow_id)
-                start = next(
-                    (e for e in elements if e.get("type") == "workflow_start_point"), {}
-                )
-                if str(start.get("resourceID")) != str(trigger_form_id):
-                    return CreateWorkflowResult(
-                        workflow_id=str(workflow_id), title=title,
-                        error=(
-                            "Workflow created, but the trigger form could not be "
-                            "bound — this is a known limitation of the public API, "
-                            "not a failure you can retry. Tell the user the "
-                            "workflow was created and they need to set the "
-                            "trigger form themselves in the Jotform builder."
-                        ),
-                    )
             except JotformAPIError as e:
                 return CreateWorkflowResult(
                     workflow_id=str(workflow_id), title=title,
                     error=f"Workflow created, but setting trigger form failed: {e}",
+                )
+
+            # Never trust a write response alone (decision-log rule: no
+            # boolean flag or 200 counts as proof of an effect) — read the
+            # start point back and confirm the form id actually landed.
+            # Element 1 is always the start point (jotform_client.create_workflow
+            # creates it that way, and set_trigger_form always targets
+            # elementID 1) — read it with get_element, not get_elements:
+            # per jotform_client's own docstring, the plural/list endpoint
+            # only summarizes, the singular endpoint returns the full
+            # config. Verifying against the summary risks a false "could
+            # not be verified" if resourceID happens to be one of the
+            # fields the summary omits.
+            try:
+                start = client.get_element(workflow_id, 1)
+            except JotformAPIError as e:
+                return CreateWorkflowResult(
+                    workflow_id=str(workflow_id), title=title,
+                    error=f"Workflow created, trigger form set, but could not verify: {e}",
+                )
+
+            if str(start.get("resourceID")) != str(trigger_form_id):
+                return CreateWorkflowResult(
+                    workflow_id=str(workflow_id), title=title,
+                    error=(
+                        "Workflow created, but the trigger form binding could "
+                        "not be verified — the start point doesn't show this "
+                        "form id after the write. Tell the user to check the "
+                        "trigger form in the Jotform builder (Settings -> "
+                        "trigger form) and set it manually if it's missing."
+                    ),
                 )
 
         return CreateWorkflowResult(
@@ -214,7 +228,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         is_branching = source_type in schema_registry.BRANCHING_TYPES
 
         if is_branching and not outcome:
-            available = [o.get("conditionValue") for o in (source.get("outcomes") or [])]
+            # tb.outcome_label, not raw conditionValue — a conditional
+            # branch's named outcomes all share conditionValue "CUSTOM";
+            # the real per-branch name lives in branchName, and this hint
+            # is the model's only way to discover it without a separate
+            # get_step_details call.
+            available = [tb.outcome_label(o) for o in (source.get("outcomes") or [])]
             return ConnectStepsResult(
                 error=f"{from_step_id} is a {source_type} and requires an outcome.",
                 hint=f"Available outcomes: {available}",
@@ -265,6 +284,84 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         return ConnectStepsResult(
             link_id=str(link_id), from_step=from_step_id, to_step=to_step_id,
             outcome=outcome or None,
+        )
+
+    @mcp.tool()
+    def disconnect_steps(
+        workflow_id: Annotated[str, Field(description="From list_workflows.")],
+        link_id: Annotated[str, Field(
+            description="From get_workflow's connections list."
+        )],
+    ) -> DisconnectStepsResult:
+        """
+        Remove a single connection between two steps, without deleting
+        either step.
+
+        If the connection leaves a branching step (if/else, conditional
+        branch, approval), that outcome's link is cleared first — so it
+        shows up as unconnected again and can be wired to something else
+        with connect_steps. Without this, the outcome would still point at
+        a link_id that no longer exists: resolve_outcome would wrongly
+        report it as already connected, and get_workflow's health check
+        would separately start flagging it as a dangling link.
+
+        Use this instead of add_step + connect_steps when the goal is
+        rewiring an existing structure — for example, replacing
+        On Submission -> Review -> Approval with a direct
+        On Submission -> Approval by removing the old link first.
+        """
+        try:
+            links = client.get_links(workflow_id)
+        except JotformAPIError as e:
+            return DisconnectStepsResult(error=str(e))
+
+        link = next((l for l in links if str(l.get("link_id")) == str(link_id)), None)
+        if link is None:
+            return DisconnectStepsResult(
+                error=f"No link {link_id} in this workflow.",
+                hint="Call get_workflow and check the connections list for valid link ids.",
+            )
+
+        from_step_id = link.get("fromElement")
+
+        try:
+            source = client.get_element(workflow_id, from_step_id)
+        except JotformAPIError as e:
+            return DisconnectStepsResult(error=str(e))
+
+        outcome_cleared = None
+        if source.get("type") in schema_registry.BRANCHING_TYPES:
+            outcome = tb.find_outcome_by_link(source, link_id)
+            if outcome is not None:
+                try:
+                    client.update_tree(
+                        workflow_id,
+                        elements=[tb.build_outcome_update(
+                            source, outcome["outcomeID"], None
+                        )],
+                    )
+                except JotformAPIError as e:
+                    return DisconnectStepsResult(
+                        from_step=str(from_step_id),
+                        error=f"Could not clear the outcome before disconnecting: {e}",
+                    )
+                outcome_cleared = tb.outcome_label(outcome)
+
+        try:
+            client.update_tree(workflow_id, links=[tb.build_link_delete(link_id)])
+        except JotformAPIError as e:
+            return DisconnectStepsResult(
+                from_step=str(from_step_id), outcome_cleared=outcome_cleared,
+                error=(
+                    f"Outcome cleared but link deletion failed: {e}. "
+                    f"The branch is now unwired but the old link may still exist "
+                    f"— check get_workflow before retrying."
+                ),
+            )
+
+        return DisconnectStepsResult(
+            link_id=str(link_id), from_step=str(from_step_id),
+            outcome_cleared=outcome_cleared, disconnected=True,
         )
 
     @mcp.tool()

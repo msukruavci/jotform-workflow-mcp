@@ -1,20 +1,11 @@
 """
-Does setResource actually bind a trigger form to a workflow?
+Does setResource + updateTree actually bind a trigger form to a workflow?
 
-create_workflow's trigger_form_id parameter calls
-client.set_trigger_form() -> POST /workflow/{id}/setResource, inherited
-from the original Phase 0 client with no independent confirmation this
-project ever ran. Untested code path in a tool that's already shipped.
-
-Method: create a bare workflow, call setResource with a real form id, read
-the workflow back, check whether the start point element's resourceID
-actually changed to that form. A 200 alone doesn't prove the bind stuck —
-same lesson as every other write path in this project.
+Creates a throwaway workflow, calls the updated 2-step set_trigger_form, 
+reads the workflow back, and strictly verifies if the start point element's 
+data holds the new resourceID and subType.
 
 Needs TEST_FORM_ID in .env — a real form id from list_forms.
-
-Creates a throwaway workflow, cleans it up at the end via delete_workflow
-(confirmed working).
 
 Run:
     python -m probes.test_set_trigger_form
@@ -49,47 +40,54 @@ def main() -> int:
     print(f"Workflow: {title} ({workflow_id})")
 
     before = client.get_workflow_combined(workflow_id)
-    start_before = next(
+    start_before_element = next(
         (e for e in (before.get("elements") or [])
          if isinstance(e, dict) and e.get("type") == "workflow_start_point"),
         {},
     )
-    print(f"Start point before: resourceID={start_before.get('resourceID')!r}, "
-          f"resourceType={start_before.get('resourceType')!r}")
+    # Değerler data içinde veya kökte olabilir, güvenli okuma yapıyoruz
+    data_before = start_before_element.get("data", start_before_element)
+    
+    print(f"Start point before: resourceID={data_before.get('resourceID')!r}, "
+          f"subType={data_before.get('subType')!r}")
 
-    print(f"\nCalling setResource with form {form_id}...")
+    print(f"\nCalling 2-step set_trigger_form with form {form_id}...")
     try:
         result = client.set_trigger_form(workflow_id, form_id)
     except JotformAPIError as e:
-        print(f"[FAIL] setResource rejected: {e}")
-        print("\nCode calling this (create_workflow's trigger_form_id) is unsafe as")
-        print("shipped — it swallows this failure into a soft error field, but the")
-        print("tool result should make clear the workflow was NOT bound to a form.")
+        print(f"[FAIL] set_trigger_form rejected: {e}")
         return 1
 
     print(f"Response: {json.dumps(result)[:200]}")
 
     after = client.get_workflow_combined(workflow_id)
-    start_after = next(
+    start_after_element = next(
         (e for e in (after.get("elements") or [])
          if isinstance(e, dict) and e.get("type") == "workflow_start_point"),
         {},
     )
-    print(f"\nStart point after: resourceID={start_after.get('resourceID')!r}, "
-          f"resourceType={start_after.get('resourceType')!r}")
+    
+    # Jotform veriyi 'data' objesi içine yazar
+    data_after = start_after_element.get("data", start_after_element)
+    
+    res_id_persisted = str(data_after.get('resourceID', ''))
+    subtype_persisted = str(data_after.get('subType', ''))
+    
+    print(f"\nStart point after: resourceID={res_id_persisted!r}, "
+          f"subType={subtype_persisted!r}")
 
-    bound = str(start_after.get("resourceID")) == str(form_id)
+    # Hem ID'nin hem de tetikleyici türünün doğru değiştiğini teyit ediyoruz
+    bound = (res_id_persisted == str(form_id)) and (subtype_persisted == "workflow_start_point_submission")
 
     print("\n" + "=" * 70)
     if bound:
-        print(f"[CONFIRMED] setResource works — start point now bound to form {form_id}.")
-        print("create_workflow's trigger_form_id parameter is safe to trust as-is.")
+        print(f"[CONFIRMED] ✨ 2-Step Binding Works — start point is now perfectly bound to form {form_id}.")
+        print("create_workflow's trigger_form_id parameter is completely safe to trust.")
     else:
-        print("[NOT CONFIRMED] 200 came back but resourceID did not change to the")
-        print("form id sent. Either a different field holds the binding, or the")
-        print("call had no real effect. Do not trust create_workflow's")
-        print("trigger_form_id until this is resolved — check the full element")
-        print(f"dump: {json.dumps(start_after, indent=2)[:500]}")
+        print("[NOT CONFIRMED] ❌ 200 came back but the element data did not fully match.")
+        print(f"Expected resourceID: {form_id}, Got: {res_id_persisted}")
+        print(f"Expected subType: workflow_start_point_submission, Got: {subtype_persisted}")
+        print(f"Full element dump:\n{json.dumps(start_after_element, indent=2)}")
 
     print(f"\nCleaning up: deleting {workflow_id}...")
     try:
