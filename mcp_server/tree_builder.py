@@ -38,6 +38,19 @@ LINK_DEFAULTS = {
     "toPortName": "DYNAMIC_TOP_1_In",
 }
 
+
+def _normalize_after_unit(unit: str) -> str:
+    normalized = str(unit).strip().lower()
+    if normalized in ("day", "days", "gün", "gun", "günü", "gunu"):
+        return "day"
+    if normalized in ("hour", "hours", "saat"):
+        return "hour"
+    if normalized in ("week", "weeks", "hafta"):
+        return "week"
+    if normalized in ("month", "months", "ay"):
+        return "month"
+    return normalized
+
 DEFAULT_ELEMENT_SIZE = {"width": 296, "height": 88}
 
 # Layout spacing. Nothing in Jotform's API computes this for us (unlike
@@ -88,20 +101,50 @@ def _position_of(el: dict) -> tuple[float, float] | None:
         return None
 
 
-def compute_position(elements: list[dict], after_step_id: str | None) -> dict:
+def _size_of(el: dict) -> tuple[float, float]:
+    measured = el.get("measured") or {}
+    try:
+        return (
+            float(measured.get("width", DEFAULT_ELEMENT_SIZE["width"])),
+            float(measured.get("height", DEFAULT_ELEMENT_SIZE["height"])),
+        )
+    except (TypeError, ValueError):
+        return float(DEFAULT_ELEMENT_SIZE["width"]), float(DEFAULT_ELEMENT_SIZE["height"])
+
+
+def _overlaps(elements: list[dict], candidate_x: float, candidate_y: float) -> bool:
+    new_width = DEFAULT_ELEMENT_SIZE["width"]
+    new_height = DEFAULT_ELEMENT_SIZE["height"]
+    for element in elements:
+        position = _position_of(element)
+        if position is None:
+            continue
+        x, y = position
+        width, height = _size_of(element)
+        if (
+            candidate_x < x + width
+            and candidate_x + new_width > x
+            and candidate_y < y + height
+            and candidate_y + new_height > y
+        ):
+            return True
+    return False
+
+
+def compute_position(
+    elements: list[dict], after_step_id: str | None, *, branch_offset: float = 0
+) -> dict:
     """
     Where to put a new node.
 
     With no anchor: below the lowest existing node, so new work doesn't land
     on top of the workflow's start.
 
-    With an anchor: directly below it, then nudged right by however many
-    outgoing links the anchor already has — the first child goes straight
-    down, the second one over, and so on. This does not attempt to be a
-    real auto-layout (no collision detection against everything else on the
-    canvas); it only guarantees a new node doesn't sit exactly on its
-    parent. See docs/gap-report.md item 5 — a known open gap, not a solved
-    one.
+    With an anchor: start below it. `branch_offset` can select a deliberate
+    branch column, but callers that do not care can leave the default. If
+    that rectangle is occupied, search neighbouring columns, then lower
+    rows. This is intentionally local: adding one step must not move the
+    user's existing canvas.
     """
     positioned = [p for p in (_position_of(e) for e in elements) if p is not None]
 
@@ -118,7 +161,21 @@ def compute_position(elements: list[dict], after_step_id: str | None) -> dict:
         return {"x": 0, "y": base_y + STEP_Y}
 
     ax, ay = anchor_pos
-    return {"x": ax, "y": ay + STEP_Y}
+    base_y = ay + STEP_Y
+    base_x = ax + branch_offset * BRANCH_X
+
+    x_offsets = [0]
+    for column in range(1, 100):
+        x_offsets.extend([column * BRANCH_X, -column * BRANCH_X])
+
+    for row in range(100):
+        y = base_y + row * STEP_Y
+        for offset in x_offsets:
+            x = base_x + offset
+            if not _overlaps(elements, x, y):
+                return {"x": x, "y": y}
+
+    return {"x": base_x, "y": base_y}
 
 
 # --------------------------------------------------------------------------
@@ -140,6 +197,34 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
     x/y/position are always stripped here — layout is computed by
     compute_position, never taken from the caller.
     """
+    resolved = schema_registry.resolve_step_type(step_type)
+    canonical_type = resolved["canonical_type"]
+    config = dict(config or {})
+
+    if canonical_type == "workflow_pause":
+        after_amount = config.pop("afterAmount", None)
+        after_unit = config.pop("afterUnit", None)
+        pause = config.get("pause")
+        if not isinstance(pause, dict):
+            pause = {"activated": "Yes", "executeWhen": {}}
+            config["pause"] = pause
+        execute_when = pause.get("executeWhen")
+        if not isinstance(execute_when, dict):
+            execute_when = {}
+            pause["executeWhen"] = execute_when
+        if "afterAmount" in pause and "afterAmount" not in execute_when:
+            execute_when["afterAmount"] = str(pause.pop("afterAmount"))
+        if "afterUnit" in pause and "afterUnit" not in execute_when:
+            execute_when["afterUnit"] = _normalize_after_unit(pause.pop("afterUnit"))
+        if after_amount is not None:
+            execute_when["afterAmount"] = str(after_amount)
+        if after_unit is not None:
+            execute_when["afterUnit"] = _normalize_after_unit(after_unit)
+        elif "afterUnit" in execute_when:
+            execute_when["afterUnit"] = _normalize_after_unit(execute_when["afterUnit"])
+        if "afterAmount" in execute_when:
+            execute_when["afterAmount"] = str(execute_when["afterAmount"])
+
     schema = schema_registry.get_simplified_schema(step_type)
     if schema is None:
         raise ValidationError(
@@ -164,9 +249,141 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
                 f"'{key}'={value!r} not in {allowed}; field dropped"
             )
             continue
+        if step_type == "workflow_conditional_branch" and key == "outcomes":
+            value = _validate_conditional_branch_outcomes(value)
+        if step_type == "workflow_assign_task" and key == "outcomes":
+            value = _validate_task_outcomes(value)
         clean[key] = value
 
     return clean, warnings
+
+
+def _task_outcome_object(outcome, idx: int) -> dict:
+    if isinstance(outcome, dict):
+        label = outcome.get("text") or outcome.get("branchName") or outcome.get("conditionValue")
+        if not label:
+            raise ValidationError(f"outcomes[{idx}] needs text.")
+        outcome_id = outcome.get("outcomeID") or outcome.get("id") or idx
+        try:
+            outcome_id = int(outcome_id)
+        except (TypeError, ValueError):
+            raise ValidationError(f"outcomes[{idx}] id/outcomeID must be an integer.")
+        return {
+            **outcome,
+            "id": outcome_id,
+            "outcomeID": outcome_id,
+            "type": outcome.get("type") or "CUSTOM",
+            "buttonColor": outcome.get("buttonColor") or "#0075E3",
+            "text": str(label),
+            "textColor": outcome.get("textColor") or "#FFFFFF",
+        }
+    if isinstance(outcome, str) and outcome.strip():
+        return {
+            "id": idx,
+            "outcomeID": idx,
+            "type": "CUSTOM",
+            "buttonColor": "#0075E3",
+            "text": outcome.strip(),
+            "textColor": "#FFFFFF",
+        }
+    raise ValidationError(f"outcomes[{idx}] must be a non-empty string or object.")
+
+
+def _validate_task_outcomes(outcomes) -> list[dict]:
+    if not isinstance(outcomes, list) or not outcomes:
+        raise ValidationError("workflow_assign_task.outcomes must be a non-empty list.")
+
+    normalized = []
+    seen_ids: set[int] = set()
+    for idx, outcome in enumerate(outcomes, start=1):
+        item = _task_outcome_object(outcome, idx)
+        if item["outcomeID"] in seen_ids:
+            raise ValidationError(f"Duplicate outcomeID {item['outcomeID']} in outcomes.")
+        seen_ids.add(item["outcomeID"])
+        normalized.append(item)
+    return normalized
+
+
+def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
+    if not isinstance(outcomes, list) or not outcomes:
+        raise ValidationError(
+            "workflow_conditional_branch.outcomes must be a non-empty list. "
+            "Use get_form_fields first, then provide at least one branch with "
+            "conditionTerms using real form field ids."
+        )
+
+    normalized = []
+    seen_ids: set[int] = set()
+    for idx, outcome in enumerate(outcomes, start=1):
+        if not isinstance(outcome, dict):
+            raise ValidationError(f"outcomes[{idx}] must be an object.")
+
+        condition_value = outcome.get("conditionValue")
+        branch_name = outcome.get("branchName")
+        is_other = condition_value == "OTHER"
+
+        if not is_other and not branch_name:
+            raise ValidationError(f"outcomes[{idx}] needs branchName.")
+
+        terms = outcome.get("conditionTerms")
+        if not is_other and not terms:
+            raise ValidationError(
+                f"Branch '{branch_name}' needs at least one conditionTerms "
+                "entry. Do not create CUSTOM branches with conditionTerms=[]. "
+                "Call get_form_fields and use a real field id, operator, and value."
+            )
+        if terms is None:
+            terms = []
+        if not isinstance(terms, list):
+            raise ValidationError(f"Branch '{branch_name or condition_value}' conditionTerms must be a list.")
+
+        normalized_terms = []
+        for term_idx, term in enumerate(terms, start=1):
+            if not isinstance(term, dict):
+                raise ValidationError(
+                    f"Branch '{branch_name or condition_value}' conditionTerms[{term_idx}] must be an object."
+                )
+            field = term.get("field")
+            operator = term.get("operator")
+            if not field:
+                raise ValidationError(
+                    f"Branch '{branch_name or condition_value}' conditionTerms[{term_idx}] needs field. "
+                    "Use a field_id returned by get_form_fields."
+                )
+            if not operator:
+                raise ValidationError(
+                    f"Branch '{branch_name or condition_value}' conditionTerms[{term_idx}] needs operator."
+                )
+            normalized_term = {
+                **term,
+                "id": term.get("id") or f"term_{idx}_{term_idx}",
+                "isError": bool(term.get("isError", False)),
+            }
+            if "value" not in normalized_term:
+                normalized_term["value"] = ""
+            normalized_terms.append(normalized_term)
+
+        outcome_id = outcome.get("outcomeID") or outcome.get("id") or idx
+        try:
+            outcome_id = int(outcome_id)
+        except (TypeError, ValueError):
+            raise ValidationError(f"outcomes[{idx}] id/outcomeID must be an integer.")
+        if outcome_id in seen_ids:
+            raise ValidationError(f"Duplicate outcomeID {outcome_id} in outcomes.")
+        seen_ids.add(outcome_id)
+
+        normalized_outcome = {
+            **outcome,
+            "id": outcome_id,
+            "outcomeID": outcome_id,
+            "type": outcome.get("type") or "CONDITION",
+            "conditionValue": "OTHER" if is_other else "CUSTOM",
+            "conditionTermsMatchType": outcome.get("conditionTermsMatchType") or "All",
+            "conditionTerms": normalized_terms,
+        }
+        normalized.append(normalized_outcome)
+
+    return normalized
 
 
 def build_element_create(step_type: str, element_id: int, config: dict,
@@ -183,17 +400,21 @@ def build_element_create(step_type: str, element_id: int, config: dict,
     to be a special case here and is now just one instance of the general
     rule.
     """
+    resolved = schema_registry.resolve_step_type(step_type)
+    canonical_type = resolved["canonical_type"]
     data = {
         "element_id": element_id,
         "id": element_id,
-        "type": step_type,
-        "elementType": step_type,
+        "type": canonical_type,
+        "elementType": canonical_type,
         "position": position,
         "x": position["x"],
         "y": position["y"],
         "measured": DEFAULT_ELEMENT_SIZE,
         **config,
     }
+    if resolved["subtype"]:
+        data["subType"] = resolved["subtype"]
     for field, default in schema_registry.get_field_defaults(step_type).items():
         if field not in data:
             data[field] = default
@@ -220,6 +441,27 @@ def build_link_create(link_id: int, from_id: int | str, to_id: int | str) -> dic
     return {"action": "create", "linkID": link_id, "data": data}
 
 
+def build_link_label_update(link_id: int | str, label: str) -> dict:
+    """
+    Add the builder-visible outcome label to an existing link.
+
+    HAR capture from the Jotform builder showed that selecting an outcome on
+    a link writes both sides: the source element's outcome gets linkID, and
+    the link itself gets labels=[{justCreated, label}]. Without this label,
+    the graph can be connected but the builder's "Select outcome" UI may not
+    show the outcome as selected.
+    """
+    return {
+        "action": "update",
+        "linkID": link_id,
+        "data": {
+            "id": link_id,
+            "link_id": link_id,
+            "labels": [{"justCreated": True, "label": label}],
+        },
+    }
+
+
 # Different step types put an outcome's human-readable label under
 # different keys. workflow_binary_decision uses `conditionValue` directly
 # ("TRUE"/"FALSE") and so does the catch-all branch on
@@ -238,7 +480,11 @@ def build_link_create(link_id: int, from_id: int | str, to_id: int | str) -> dic
 _OUTCOME_LABEL_FIELDS = ("branchName", "conditionValue", "text", "type")
 
 
-def outcome_label(outcome: dict) -> str | None:
+def outcome_label(outcome) -> str | None:
+    if isinstance(outcome, str):
+        return outcome
+    if not isinstance(outcome, dict):
+        return None
     for field in _OUTCOME_LABEL_FIELDS:
         value = outcome.get(field)
         if value:
@@ -264,17 +510,17 @@ def resolve_outcome(source_element: dict, outcome: str) -> dict:
     link, it does not invent new outcomes.
     """
     outcomes = source_element.get("outcomes") or []
-    match = next(
-        (o for o in outcomes
-         if (outcome_label(o) or "").strip().lower() == outcome.strip().lower()),
-        None,
-    )
+    match = None
+    for idx, item in enumerate(outcomes, start=1):
+        if (outcome_label(item) or "").strip().lower() == outcome.strip().lower():
+            match = _task_outcome_object(item, idx) if isinstance(item, str) else item
+            break
     if match is None:
         available = [outcome_label(o) for o in outcomes]
         raise ValidationError(
             f"'{outcome}' is not an outcome on this step. Available: {available}"
         )
-    if match.get("linkID"):
+    if match.get("linkID") not in (None, 0, "0", ""):
         raise ValidationError(
             f"Outcome '{outcome}' is already connected (to element "
             f"{_target_of_link(match.get('linkID'))}). Use update_step to "
@@ -314,6 +560,30 @@ def find_outcome_by_link(source_element: dict, link_id) -> dict | None:
     return None
 
 
+def build_outcome_clears_for_links(source_element: dict, link_ids: list) -> dict | None:
+    """
+    Clear every outcome on a branching source element that points at one of
+    link_ids. Used when deleting a step removes multiple incident links:
+    deleting the link objects alone is not enough, because the source
+    element's outcome would still claim that branch is already wired.
+    """
+    wanted = {str(link_id) for link_id in link_ids}
+    outcomes = source_element.get("outcomes") or []
+    updated = []
+    changed = False
+
+    for outcome in outcomes:
+        if isinstance(outcome, dict) and str(outcome.get("linkID")) in wanted:
+            updated.append({**outcome, "linkID": None})
+            changed = True
+        else:
+            updated.append(outcome)
+
+    if not changed:
+        return None
+    return build_element_update(source_element.get("element_id"), {"outcomes": updated})
+
+
 def build_outcome_update(source_element: dict, outcome_id, link_id: int | None) -> dict:
     """
     The `elements[]` entry that (re)wires an outcome's link, or clears it
@@ -322,9 +592,25 @@ def build_outcome_update(source_element: dict, outcome_id, link_id: int | None) 
     linkID changed — updateTree edits fields wholesale, so a partial
     outcomes list would drop the others.
     """
+    try:
+        wanted_id = int(outcome_id)
+    except (TypeError, ValueError):
+        wanted_id = outcome_id
+
     outcomes = source_element.get("outcomes") or []
-    updated = [
-        {**o, "linkID": link_id} if o.get("outcomeID") == outcome_id else o
-        for o in outcomes
-    ]
+    updated = []
+    for idx, outcome in enumerate(outcomes, start=1):
+        if isinstance(outcome, str):
+            updated.append(
+                {**_task_outcome_object(outcome, idx), "linkID": link_id}
+                if idx == wanted_id else outcome
+            )
+            continue
+
+        current_id = outcome.get("outcomeID") or outcome.get("id") or idx
+        try:
+            current_id = int(current_id)
+        except (TypeError, ValueError):
+            pass
+        updated.append({**outcome, "linkID": link_id} if current_id == wanted_id else outcome)
     return build_element_update(source_element.get("element_id"), {"outcomes": updated})

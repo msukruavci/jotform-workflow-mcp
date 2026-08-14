@@ -20,9 +20,82 @@ from typing import Annotated
 from mcp.server import MCPServer
 from pydantic import Field
 
-from mcp_server import graph, schema_registry
+from mcp_server import graph, revision_log, schema_registry, workflow_inspector
+from mcp_server import tree_builder as tb
 from mcp_server.jotform_client import JotformAPIError, JotformClient
-from mcp_server.models import DeleteStepResult, DeleteWorkflowResult, PublishWorkflowResult
+from mcp_server.models import (
+    DeleteStepResult, DeleteWorkflowResult, PublishWorkflowResult,
+    RestoreWorkflowRevisionResult,
+)
+
+
+def _workflow_url(workflow_id: str | None) -> str | None:
+    return f"https://www.jotform.com/workflow/{workflow_id}/build" if workflow_id else None
+
+
+INTENT_FIELD = Field(
+    description=(
+        "Optional short, privacy-conscious summary of the user's intent for "
+        "audit/debug logs. Do not copy the full user message; keep one phrase."
+    )
+)
+REASON_FIELD = Field(
+    description=(
+        "Optional short explanation of why this tool call is the right next "
+        "step. Used for audit/debug logs and revision history."
+    )
+)
+
+
+def _revision_reason(default: str, intent: str = "", reason: str = "") -> str:
+    details = []
+    if intent:
+        details.append(f"intent={intent}")
+    if reason:
+        details.append(f"reason={reason}")
+    return f"{default} ({'; '.join(details)})" if details else default
+
+
+def _restore_result_from_revision(
+    workflow_id: str,
+    revision: dict,
+    *,
+    needs_confirmation: bool = False,
+    restored: bool = False,
+    current_backup_revision_id: str | None = None,
+    hint: str | None = None,
+) -> RestoreWorkflowRevisionResult:
+    summary = revision_log.summarize_revision(revision)
+    return RestoreWorkflowRevisionResult(
+        workflow_id=workflow_id,
+        workflow_url=_workflow_url(workflow_id),
+        revision_id=summary.get("revision_id"),
+        revision_timestamp=summary.get("timestamp"),
+        session_id=summary.get("session_id"),
+        reason=summary.get("reason"),
+        target_title=summary.get("title"),
+        target_step_count=summary.get("step_count") or 0,
+        target_link_count=summary.get("link_count") or 0,
+        current_backup_revision_id=current_backup_revision_id,
+        needs_confirmation=needs_confirmation,
+        restored=restored,
+        hint=hint,
+    )
+
+
+def _unconnected_branch_outcomes(elements: list[dict]) -> list[str]:
+    unconnected: list[str] = []
+    for element in elements:
+        if element.get("type") not in schema_registry.BRANCHING_TYPES:
+            continue
+        step_id = element.get("element_id")
+        for outcome in element.get("outcomes") or []:
+            if not isinstance(outcome, dict):
+                continue
+            if outcome.get("linkID") in (None, 0, "0", ""):
+                label = tb.outcome_label(outcome) or outcome.get("outcomeID")
+                unconnected.append(f"step {step_id} {label}")
+    return unconnected
 
 
 def register(mcp: MCPServer, client: JotformClient) -> None:
@@ -38,6 +111,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "based on your own judgement that it's probably fine."
             )
         )] = False,
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> DeleteStepResult:
         """
         Delete a step from a workflow. Irreversible.
@@ -99,18 +174,100 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             {"action": "delete", "linkID": lid, "data": {"link_id": lid}}
             for lid in incident_link_ids
         ]
+        source_ids = {
+            str(l.get("fromElement")) for l in links
+            if l.get("link_id") in incident_link_ids
+            and l.get("fromElement") is not None
+            and str(l.get("fromElement")) != str(step_id)
+        }
+
+        outcome_clears = []
+        source_ids_with_cleared_outcomes: set[str] = set()
+        for source_id in sorted(source_ids):
+            try:
+                source = client.get_element(workflow_id, source_id)
+            except JotformAPIError as e:
+                return DeleteStepResult(
+                    step_id=step_id,
+                    error=(
+                        f"Could not inspect source step {source_id} before "
+                        f"deleting; nothing was deleted: {e}"
+                    ),
+                )
+            if source.get("type") not in schema_registry.BRANCHING_TYPES:
+                continue
+            clear = tb.build_outcome_clears_for_links(source, incident_link_ids)
+            if clear is not None:
+                outcome_clears.append(clear)
+                source_ids_with_cleared_outcomes.add(source_id)
 
         try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason(f"before delete_step {step_id}", intent, reason),
+                tool_name="delete_step",
+            )
             client.update_tree(
                 workflow_id,
-                elements=[{"action": "delete", "elementID": step_id,
-                          "data": {"element_id": step_id}}],
+                elements=[
+                    *outcome_clears,
+                    {"action": "delete", "elementID": step_id,
+                     "data": {"element_id": step_id}},
+                ],
                 links=link_deletes,
             )
         except JotformAPIError as e:
             return DeleteStepResult(step_id=step_id, error=str(e))
 
-        return DeleteStepResult(step_id=step_id, deleted=True)
+        try:
+            remaining_elements = client.get_elements(workflow_id)
+            remaining_links = client.get_links(workflow_id)
+            source_read_backs = {
+                source_id: client.get_element(workflow_id, source_id)
+                for source_id in source_ids_with_cleared_outcomes
+            }
+        except JotformAPIError as e:
+            return DeleteStepResult(
+                step_id=step_id,
+                deleted=True,
+                error=f"Step deletion completed, but could not verify it: {e}",
+            )
+
+        step_removed = not any(
+            str(item.get("element_id")) == str(step_id)
+            for item in remaining_elements
+        )
+        links_removed = not any(
+            str(item.get("fromElement")) == str(step_id)
+            or str(item.get("toElement")) == str(step_id)
+            for item in remaining_links
+        )
+        cleared_link_ids = {str(link_id) for link_id in incident_link_ids}
+        outcomes_cleared = all(
+            not any(
+                str(outcome.get("linkID")) in cleared_link_ids
+                for outcome in (source.get("outcomes") or [])
+                if isinstance(outcome, dict)
+            )
+            for source in source_read_backs.values()
+        )
+
+        if not step_removed or not links_removed or not outcomes_cleared:
+            return DeleteStepResult(
+                step_id=step_id,
+                deleted=step_removed,
+                error=(
+                    "Step deletion did not persist completely; inspect the "
+                    "workflow before retrying."
+                ),
+                hint=(
+                    f"step_removed={step_removed}, links_removed={links_removed}, "
+                    f"outcomes_cleared={outcomes_cleared}"
+                ),
+            )
+
+        return DeleteStepResult(step_id=step_id, deleted=True, verified=True)
 
     @mcp.tool()
     def publish_workflow(
@@ -122,6 +279,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "that to the user and getting their explicit go-ahead."
             )
         )] = False,
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> PublishWorkflowResult:
         """
         Publish a workflow, making it live — from this point on, matching
@@ -146,6 +305,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             conns = [{"link_id": l.get("link_id"), "from_step": l.get("fromElement"),
                      "to_step": l.get("toElement")} for l in links]
             health = graph.analyse(steps, conns)
+            branch_health = workflow_inspector.branch_diagnostics(elements, links)
 
             warnings = []
             if health["unreachable_steps"]:
@@ -156,6 +316,18 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                                f"{health['dead_end_steps']}")
             if health["dangling_links"]:
                 warnings.append(f"broken link(s): {health['dangling_links']}")
+            unconnected_branches = _unconnected_branch_outcomes(elements)
+            if unconnected_branches:
+                warnings.append(f"unconnected branch outcome(s): {unconnected_branches}")
+            if branch_health["unlabelled_branching_steps"]:
+                warnings.append(
+                    "unlabelled branching link(s): "
+                    f"{branch_health['unlabelled_branching_steps']}"
+                )
+            if branch_health["invalid_branch_links"]:
+                warnings.append(
+                    f"invalid branch mapping(s): {branch_health['invalid_branch_links']}"
+                )
 
             return PublishWorkflowResult(
                 workflow_id=workflow_id, needs_confirmation=True,
@@ -167,12 +339,101 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             )
 
         try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason("before publish_workflow", intent, reason),
+                tool_name="publish_workflow",
+            )
             client.publish_workflow(workflow_id)
         except JotformAPIError as e:
             return PublishWorkflowResult(workflow_id=workflow_id, error=str(e))
 
         return PublishWorkflowResult(workflow_id=workflow_id, published=True)
 
+
+    @mcp.tool()
+    def restore_workflow_revision(
+        workflow_id: Annotated[str, Field(description="From list_workflows.")],
+        revision_id: Annotated[str, Field(
+            description=(
+                "Optional. If empty, restores the newest saved revision for "
+                "this workflow, usually the state immediately before the last "
+                "mutating tool call."
+            )
+        )] = "",
+        confirm: Annotated[bool, Field(
+            description=(
+                "Leave false to preview the restore target. Only pass true "
+                "after showing that preview to the user and getting explicit "
+                "approval. The current workflow is backed up as a new revision "
+                "before restore."
+            )
+        )] = False,
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
+    ) -> RestoreWorkflowRevisionResult:
+        """
+        Restore a workflow to a saved revision.
+
+        Revisions are captured automatically before add/update/connect/
+        disconnect/delete/publish operations. Without revision_id, this uses
+        the newest saved revision, so it is the "go back one change" tool.
+        """
+        revision = revision_log.load_workflow_revision(workflow_id, revision_id or None)
+        if revision is None:
+            return RestoreWorkflowRevisionResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                error=(
+                    f"No revision found for workflow {workflow_id}"
+                    + (f" with revision_id {revision_id!r}." if revision_id else ".")
+                ),
+                hint=(
+                    "Revisions are created automatically before mutating tool "
+                    "calls. Call list_workflow_revisions to see what exists."
+                ),
+            )
+
+        if not confirm:
+            return _restore_result_from_revision(
+                workflow_id,
+                revision,
+                needs_confirmation=True,
+                hint=(
+                    "Show this target revision to the user. Call again with "
+                    "confirm=true only if they explicitly say to restore it."
+                ),
+            )
+
+        backup = None
+        try:
+            backup = revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason(
+                    f"before restore_workflow_revision {revision.get('revision_id')}",
+                    intent,
+                    reason,
+                ),
+                tool_name="restore_workflow_revision",
+            )
+            revision_log.restore_workflow_revision(client, workflow_id, revision)
+        except (JotformAPIError, ValueError) as e:
+            return RestoreWorkflowRevisionResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                revision_id=revision.get("revision_id"),
+                current_backup_revision_id=(backup or {}).get("revision_id"),
+                error=str(e),
+            )
+
+        return _restore_result_from_revision(
+            workflow_id,
+            revision,
+            restored=True,
+            current_backup_revision_id=backup.get("revision_id") if backup else None,
+        )
 
     @mcp.tool()
     def delete_workflow(
@@ -192,6 +453,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "retype it from memory."
             )
         )] = "",
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> DeleteWorkflowResult:
         """
         Delete an entire workflow. Irreversible, and bigger than delete_step
@@ -228,6 +491,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             )
 
         try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason("before delete_workflow", intent, reason),
+                tool_name="delete_workflow",
+            )
             client.delete_workflow(workflow_id)
         except JotformAPIError as e:
             return DeleteWorkflowResult(workflow_id=workflow_id, title=title, error=str(e))

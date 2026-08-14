@@ -10,10 +10,8 @@ description. The full schema stays available for server-side validation,
 which is where strictness actually matters.
 
 Known limitation (2026-08-07): this schema file is behind the live
-product. `workflow_payment_verification` exists in a real account but has
-no schema here, and several builder-UI elements ("Approve & Sign",
-"Team Approval", "Flow Report", "PDF") have no confirmed type mapping.
-See docs/gap-report.md.
+product. Some live workflow elements may still have no schema here, so
+read tools keep unknown types visible rather than guessing their shape.
 """
 from __future__ import annotations
 
@@ -117,7 +115,7 @@ UI_NAMES = {
     "workflow_webhook": "Webhook",
     "workflow_qr_code": "QR Code",
     "workflow_ai_task_automation": "Task Automation",
-    "workflow_payment_verification": "Payment Form",  # UNCONFIRMED
+    "workflow_payment_verification": "Verify Payment",
     "workflow_reminder_email": "Scheduled Email",     # UNCONFIRMED
     "workflow_binary_decision": "If/Else Condition",
     "workflow_conditional_branch": "Conditional Branch",
@@ -128,31 +126,55 @@ UI_NAMES = {
     "workflow_end_point": "End",
 }
 
-# Builder-UI elements we have seen but cannot map to any known type.
-# Listed so the gap report has a concrete to-do rather than a vague
-# "schemas may be incomplete".
-UNMAPPED_UI_ELEMENTS = ["Team Approval", "Flow Report", "PDF"]
+# Builder UI entries that are canonical API types plus subType. Verified
+# live with probes/test_ui_step_variants_live.py on 2026-08-13 by creating
+# each element, reading it back, and checking type/subType.
+UI_STEP_VARIANTS = {
+    "workflow_approval_with_sign": {
+        "canonical_type": "workflow_approval",
+        "subtype": "workflow_approval_with_sign",
+        "ui_name": "Approve & Sign",
+        "description": "Request an approval that also collects a signature.",
+    },
+    "workflow_team_approval": {
+        "canonical_type": "workflow_approval",
+        "subtype": "workflow_team_approval",
+        "ui_name": "Team Approval",
+        "description": "Request approval from a Jotform team.",
+    },
+    "workflow_send_pdf": {
+        "canonical_type": "workflow_send_email",
+        "subtype": "workflow_send_pdf",
+        "ui_name": "PDF",
+        "description": "Send a generated PDF through an email step.",
+    },
+    "workflow_send_approval_report": {
+        "canonical_type": "workflow_send_email",
+        "subtype": "workflow_send_approval_report",
+        "ui_name": "Flow Report",
+        "description": "Send a workflow approval report through an email step.",
+    },
+    "workflow_payment_form": {
+        "canonical_type": "workflow_assign_form",
+        "subtype": "workflow_payment_form",
+        "ui_name": "Payment Form",
+        "description": "Assign a payment form to a recipient.",
+    },
+    "workflow_pause_duration": {
+        "canonical_type": "workflow_pause",
+        "subtype": "workflow_pause_duration",
+        "ui_name": "Wait for Duration",
+        "description": "Pause a workflow for a duration.",
+    },
+    "workflow_pause_wait": {
+        "canonical_type": "workflow_pause",
+        "subtype": "workflow_pause_wait",
+        "ui_name": "Wait Until",
+        "description": "Pause a workflow until a date or form-field value.",
+    },
+}
 
-# "Approve & Sign" was in this list until 2026-08-11 — confirmed NOT
-# unmapped. It's workflow_approval with subType "workflow_approval_with_sign",
-# found by reading a real, working approval step's raw element data
-# (probes/inspect_approval_outcomes.py), not guessed. A ChatGPT test session
-# had independently guessed "workflow_approve_sign" for this — close, but
-# wrong; the confirmed value differs by one character
-# ("workflow_approval_with_sign"). Worth remembering: a subType string that
-# merely sounds plausible is exactly the kind of thing this project avoids
-# fabricating elsewhere (form field ids, emails) — the same discipline
-# applies here, and this near-miss is why.
-#
-# "Team Approval"'s real subType is still unconfirmed — do not guess it.
-# validate_config has no enum constraint on subType (it's a free string on
-# every step schema that has one), so a wrong guess is silently accepted at
-# creation time with no error — the same "accepted but not necessarily
-# correct" pattern documented for link ports and setResource. It likely
-# surfaces later as a mismatch between what the element claims to be and
-# what real elements of that kind actually look like (plausibly the cause
-# of the 404 seen wiring a guessed-subType "Team Approval" step's outcomes —
-# unconfirmed without the same ground-truth check run against a real one).
+UNMAPPED_UI_ELEMENTS: list[str] = []
 
 # Step types where an outgoing link's meaning depends on which named outcome
 # it fulfils (TRUE/FALSE, or a custom branch name) rather than just existing.
@@ -161,9 +183,27 @@ UNMAPPED_UI_ELEMENTS = ["Team Approval", "Flow Report", "PDF"]
 # once here so the two can't drift apart.
 BRANCHING_TYPES = {
     "workflow_binary_decision", "workflow_conditional_branch", "workflow_approval",
+    "workflow_assign_task",
 }
 
 _raw_schemas: dict[str, Any] | None = None
+
+
+def resolve_step_type(step_type: str) -> dict[str, str | None]:
+    variant = UI_STEP_VARIANTS.get(step_type)
+    if variant is None:
+        return {
+            "requested_type": step_type,
+            "canonical_type": step_type,
+            "subtype": None,
+            "ui_name": UI_NAMES.get(step_type),
+        }
+    return {
+        "requested_type": step_type,
+        "canonical_type": variant["canonical_type"],
+        "subtype": variant["subtype"],
+        "ui_name": variant["ui_name"],
+    }
 
 
 def _load() -> dict[str, Any]:
@@ -174,19 +214,97 @@ def _load() -> dict[str, Any]:
     return _raw_schemas
 
 
+_PAYMENT_VERIFICATION_OUTCOMES: list[dict[str, Any]] = [
+    {
+        "id": 1,
+        "outcomeID": 1,
+        "type": "VERIFY",
+        "buttonColor": "#01bd6f",
+        "text": "Verify",
+        "textColor": "#fff",
+    },
+    {
+        "id": 2,
+        "outcomeID": 2,
+        "type": "NOT_VERIFY",
+        "buttonColor": "#D53049",
+        "text": "Not Verify",
+        "textColor": "#fff",
+    },
+]
+
+
+def _payment_verification_schema() -> dict[str, Any]:
+    """
+    Compose the missing Payment Verification schema from Approval.
+
+    Live-verified by probes/test_payment_and_pause_live.py on 2026-08-14:
+    workflow_payment_verification persisted with formID, manual
+    verificationMethod, and VERIFY/NOT_VERIFY outcomes.
+    """
+    approval = copy.deepcopy(_load()["workflow_approval"])
+    properties = approval["properties"]
+    properties["type"] = {
+        **properties["type"],
+        "const": "workflow_payment_verification",
+        "default": "workflow_payment_verification",
+    }
+    properties["name"] = {**properties["name"], "default": "Verify Payment"}
+    properties["formID"] = {
+        "type": "string",
+        "description": "Payment form ID whose payment should be verified",
+        "default": "",
+    }
+    properties["verificationMethod"] = {
+        "type": "string",
+        "description": "manual asks a verifier; data verifies supported payment data automatically",
+        "enum": ["manual", "data"],
+        "default": "manual",
+    }
+
+    outcomes = copy.deepcopy(properties["outcomes"])
+    outcomes["default"] = copy.deepcopy(_PAYMENT_VERIFICATION_OUTCOMES)
+    outcomes.setdefault("items", {}).setdefault("properties", {}).setdefault("type", {}).update({
+        "enum": ["VERIFY", "NOT_VERIFY"],
+        "description": "Payment verification outcome type",
+    })
+    properties["outcomes"] = outcomes
+
+    for condition in approval.get("allOf", []):
+        if not isinstance(condition, dict):
+            continue
+        for branch_name in ("then", "else"):
+            branch = condition.get(branch_name)
+            if not isinstance(branch, dict):
+                continue
+            branch_properties = branch.setdefault("properties", {})
+            if "outcomes" in branch_properties:
+                branch_properties["outcomes"] = {
+                    **branch_properties["outcomes"],
+                    "default": copy.deepcopy(_PAYMENT_VERIFICATION_OUTCOMES),
+                }
+
+    approval["$id"] = "https://www.jotform.com/workflow/schemas/workflow_payment_verification.json"
+    approval["title"] = "Payment Verification Schema"
+    return approval
+
+
 def get_raw_schema(step_type: str) -> dict[str, Any] | None:
     """Full draft-07 schema — for server-side validation, not for the model."""
-    return _load().get(step_type)
+    canonical_type = resolve_step_type(step_type)["canonical_type"]
+    if canonical_type == "workflow_payment_verification":
+        return _payment_verification_schema()
+    return _load().get(canonical_type)
 
 
 def is_known_type(step_type: str) -> bool:
     """True if we hold a schema for this type. Live workflows contain types
     we don't (see module docstring), so callers must handle False."""
-    return step_type in _load()
+    return get_raw_schema(step_type) is not None
 
 
 def get_ui_name(step_type: str) -> str | None:
-    return UI_NAMES.get(step_type)
+    return resolve_step_type(step_type)["ui_name"]
 
 
 def default_label(step_type: str | None) -> str:
@@ -197,7 +315,7 @@ def default_label(step_type: str | None) -> str:
     """
     if not step_type:
         return "Unnamed step"
-    return UI_NAMES.get(step_type) or step_type.replace("workflow_", "").replace("_", " ").capitalize()
+    return get_ui_name(step_type) or step_type.replace("workflow_", "").replace("_", " ").capitalize()
 
 
 def _flatten_all_of(prop: dict) -> dict:
@@ -269,6 +387,9 @@ def _simplify_property(name: str, prop: dict, definitions: dict) -> dict:
 
 def get_simplified_schema(step_type: str) -> dict[str, Any] | None:
     """Model-facing view: field names, types, allowed values, descriptions."""
+    resolved = resolve_step_type(step_type)
+    canonical_type = resolved["canonical_type"]
+    subtype = resolved["subtype"]
     schema = get_raw_schema(step_type)
     if schema is None:
         return None
@@ -288,15 +409,53 @@ def get_simplified_schema(step_type: str) -> dict[str, Any] | None:
     # shape to add a step with real branches. _OUTCOME_ITEM_FIELDS_OVERRIDE
     # below fills that in for step types where it's been confirmed against
     # a real, working element — never guessed.
-    if step_type in _OUTCOME_ITEM_FIELDS_OVERRIDE:
+    if canonical_type in _OUTCOME_ITEM_FIELDS_OVERRIDE:
         for f in fields:
             if f["name"] == "outcomes" and not f.get("item_fields"):
-                f["item_fields"] = _OUTCOME_ITEM_FIELDS_OVERRIDE[step_type]
+                f["item_fields"] = _OUTCOME_ITEM_FIELDS_OVERRIDE[canonical_type]
+
+    if subtype:
+        subtype_field = next((field for field in fields if field["name"] == "subType"), None)
+        if subtype_field is None:
+            fields.append({
+                "name": "subType",
+                "type": "string",
+                "fixed_value": subtype,
+                "description": "Set automatically for this builder variant; do not override it.",
+            })
+        else:
+            subtype_field.update({
+                "type": "string",
+                "fixed_value": subtype,
+                "allowed_values": [subtype],
+                "description": "Set automatically for this builder variant; do not override it.",
+            })
+
+    if canonical_type == "workflow_pause" and subtype != "workflow_pause_wait":
+        fields.extend([
+            {
+                "name": "afterAmount",
+                "type": "string",
+                "description": "Convenience alias for pause.executeWhen.afterAmount.",
+            },
+            {
+                "name": "afterUnit",
+                "type": "string",
+                "allowed_values": ["minute", "hour", "day", "week", "month", "year"],
+                "description": "Convenience alias for pause.executeWhen.afterUnit.",
+            },
+        ])
 
     return {
         "step_type": step_type,
-        "description": DESCRIPTIONS.get(step_type, schema.get("title", "")),
-        "ui_name": UI_NAMES.get(step_type),
+        "canonical_type": canonical_type,
+        "subtype": subtype,
+        "description": (
+            UI_STEP_VARIANTS[step_type]["description"]
+            if step_type in UI_STEP_VARIANTS
+            else DESCRIPTIONS.get(canonical_type, schema.get("title", ""))
+        ),
+        "ui_name": resolved["ui_name"],
         "fields": fields,
     }
 
@@ -348,6 +507,7 @@ def get_field_defaults(step_type: str) -> dict[str, Any]:
     from a real element's actual data — never guessed — and only applies
     when the schema itself provided nothing.
     """
+    canonical_type = resolve_step_type(step_type)["canonical_type"]
     raw = get_raw_schema(step_type) or {}
     defaults: dict[str, Any] = {}
     for name, prop in raw.get("properties", {}).items():
@@ -357,8 +517,8 @@ def get_field_defaults(step_type: str) -> dict[str, Any]:
         if "default" in flat:
             defaults[name] = copy.deepcopy(flat["default"])
 
-    if "outcomes" not in defaults and step_type in _OUTCOMES_OVERRIDE:
-        defaults["outcomes"] = copy.deepcopy(_OUTCOMES_OVERRIDE[step_type])
+    if "outcomes" not in defaults and canonical_type in _OUTCOMES_OVERRIDE:
+        defaults["outcomes"] = copy.deepcopy(_OUTCOMES_OVERRIDE[canonical_type])
 
     return defaults
 
@@ -413,11 +573,10 @@ _OUTCOME_ITEM_FIELDS_OVERRIDE: dict[str, dict[str, str]] = {
         "conditionTermsMatchType": 'string — "All" (AND) or "Any" (OR) across conditionTerms',
         "conditionTerms": (
             "array of {field, operator, value} — field must be a real "
-            "form field id from get_form_fields, never invented. Confirmed "
-            'operators seen in real data: "isEmpty", "isFilled". Others '
-            "(e.g. equality/comparison operators) are plausible but "
-            "unconfirmed — verify against a real element before relying "
-            "on one not listed here."
+            "form field id from get_form_fields, never invented. Required "
+            "and non-empty for every CUSTOM branch; only the OTHER/catch-all "
+            "branch may use conditionTerms=[]. Confirmed operators seen in "
+            'real data: "isEmpty", "isFilled", "startsWith", "equals".'
         ),
     },
 }
@@ -431,19 +590,31 @@ def list_types(category: str | None = None) -> list[dict[str, Any]]:
     schema_available=False — hiding them would make the model believe they
     don't exist, when a user's workflow may already contain one.
     """
-    schemas = _load()
     if category:
         names = CATEGORIES.get(category, [])
     else:
         names = [n for cat, types in CATEGORIES.items() if cat != "internal" for n in types]
+        names.extend(UI_STEP_VARIANTS)
 
     return [
         {
             "step_type": name,
-            "category": next((c for c, t in CATEGORIES.items() if name in t), "other"),
-            "description": DESCRIPTIONS.get(name, ""),
-            "ui_name": UI_NAMES.get(name),
-            "schema_available": name in schemas,
+            "canonical_type": resolve_step_type(name)["canonical_type"],
+            "subtype": resolve_step_type(name)["subtype"],
+            "category": next(
+                (
+                    c for c, types in CATEGORIES.items()
+                    if resolve_step_type(name)["canonical_type"] in types
+                ),
+                "other",
+            ),
+            "description": (
+                UI_STEP_VARIANTS[name]["description"]
+                if name in UI_STEP_VARIANTS
+                else DESCRIPTIONS.get(name, "")
+            ),
+            "ui_name": get_ui_name(name),
+            "schema_available": is_known_type(name),
         }
         for name in names
     ]

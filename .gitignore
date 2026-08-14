@@ -10,6 +10,8 @@ env/
 
 # Loglar ve geçici test çıktıları
 agent/logs/
+mcp_server/logs/
+mcp_server/revisions/
 *.log
 probes/*_result.json
 probes/links_raw.json

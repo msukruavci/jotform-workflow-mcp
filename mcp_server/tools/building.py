@@ -13,42 +13,683 @@ job; where it sits on the canvas is ours.
 """
 from __future__ import annotations
 
+import html
+import re
 from typing import Annotated
+from uuid import uuid4
 
 from mcp.server import MCPServer
 from pydantic import Field
 
-from mcp_server import schema_registry, tree_builder as tb
+from mcp_server import revision_log, schema_registry, tree_builder as tb, workflow_inspector
 from mcp_server.jotform_client import JotformAPIError, JotformClient
 from mcp_server.models import (
-    AddStepResult, ConnectStepsResult, CreateWorkflowResult,
+    AddStepResult, ConnectStepsResult, CreateAIFormResult, CreateWorkflowResult,
+    CreateWorkflowWithAIFormResult,
     DisconnectStepsResult, UpdateStepResult,
 )
 
 
+def _workflow_url(workflow_id: str | None) -> str | None:
+    return f"https://www.jotform.com/workflow/{workflow_id}/build" if workflow_id else None
+
+
+def _form_url(form_id: str | None) -> str | None:
+    return f"https://www.jotform.com/build/{form_id}" if form_id else None
+
+
+INTENT_FIELD = Field(
+    description=(
+        "Optional short, privacy-conscious summary of the user's intent for "
+        "audit/debug logs. Do not copy the full user message; keep one phrase."
+    )
+)
+REASON_FIELD = Field(
+    description=(
+        "Optional short explanation of why this tool call is the right next "
+        "step. Used for audit/debug logs and revision history."
+    )
+)
+
+
+def _revision_reason(default: str, intent: str = "", reason: str = "") -> str:
+    details = []
+    if intent:
+        details.append(f"intent={intent}")
+    if reason:
+        details.append(f"reason={reason}")
+    return f"{default} ({'; '.join(details)})" if details else default
+
+
+def _norm_text(value) -> str:
+    return str(value or "").strip().lower()
+
+
+def _find_duplicate_step(elements: list[dict], step_type: str, config: dict) -> dict | None:
+    """
+    Conservative duplicate check.
+
+    We only block when the model supplies a human-facing name that already
+    exists on the same step type, or for emails when subject/content clearly
+    match. Legitimate duplicate steps can still be created with
+    allow_duplicate=true.
+    """
+    wanted_name = _norm_text(config.get("name"))
+    wanted_subject = _norm_text(config.get("subject"))
+    wanted_content = _norm_text(config.get("content"))
+
+    for element in elements:
+        if not isinstance(element, dict) or element.get("type") != step_type:
+            continue
+        if wanted_name and _norm_text(element.get("name")) == wanted_name:
+            return element
+        if (
+            step_type in ("workflow_send_email", "workflow_reminder_email")
+            and wanted_subject
+            and wanted_content
+            and _norm_text(element.get("subject")) == wanted_subject
+            and _norm_text(element.get("content")) == wanted_content
+        ):
+            return element
+    return None
+
+
+REQUIRED_STEP_DETAILS: dict[str, dict[str, str]] = {
+    "workflow_assign_task": {
+        "assignee": "who the task should be assigned to",
+        "taskDescription": "what the assignee should do",
+    },
+    "workflow_approval": {
+        "approver": "who should approve or deny it",
+        "taskDescription": "what the approver is deciding",
+    },
+    "workflow_assign": {
+        "assignee": "who the submission should be assigned to",
+    },
+    "workflow_assign_form": {
+        "assignee": "who should receive the assigned form",
+        "formID": "which form should be assigned",
+    },
+    "workflow_send_email": {
+        "to": "who should receive the email",
+        "subject": "the email subject",
+        "content": "the email body",
+    },
+    "workflow_reminder_email": {
+        "to": "who should receive the reminder",
+        "timing": "when the reminder should be sent",
+    },
+    "workflow_sign_document": {
+        "documentID": "which Sign document should be used",
+        "signerMapping": "who should sign the document",
+    },
+    "workflow_binary_decision": {
+        "conditionTerms": "the condition to test",
+    },
+    "workflow_conditional_branch": {
+        "outcomes": "branch names and their conditions",
+    },
+}
+
+
+ASSIGNEE_FIELDS_BY_STEP_TYPE: dict[str, tuple[str, ...]] = {
+    "workflow_assign_task": ("assignee",),
+    "workflow_assign": ("assignee",),
+    "workflow_assign_form": ("assignee",),
+    "workflow_approval": ("approver",),
+}
+
+
+def _has_value(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
+
+
+def _missing_required_step_details(step_type: str, config: dict) -> list[str]:
+    required = REQUIRED_STEP_DETAILS.get(step_type, {})
+    return [
+        f"{field} ({reason})"
+        for field, reason in required.items()
+        if not _has_value(config.get(field))
+    ]
+
+
+def _invalid_condition_field_message(
+    client: JotformClient,
+    workflow_id: str,
+    step_type: str,
+    config: dict,
+) -> tuple[str | None, str | None]:
+    if not workflow_inspector.extract_condition_terms(step_type, config):
+        return None, None
+
+    try:
+        combined = client.get_workflow_combined(workflow_id)
+    except JotformAPIError as e:
+        return f"Could not verify condition form fields before writing: {e}", None
+
+    elements = [e for e in (combined.get("elements") or []) if isinstance(e, dict)]
+    trigger_form_id = workflow_inspector.trigger_form_id(elements)
+    if not trigger_form_id:
+        return (
+            "This workflow has no trigger form, so condition fields cannot be verified.",
+            "Bind a trigger form first, then call get_form_fields and use a real field_id.",
+        )
+
+    try:
+        questions = client.get_form_questions(trigger_form_id)
+    except JotformAPIError as e:
+        return f"Could not read trigger form fields before writing: {e}", None
+
+    invalid = workflow_inspector.invalid_field_references(
+        config, step_type, {str(qid) for qid in questions}
+    )
+    if not invalid:
+        return None, None
+
+    available = [
+        f"{qid}: {q.get('text')}"
+        for qid, q in questions.items()
+        if isinstance(q, dict)
+    ]
+    return (
+        "Condition fields must be real field_id values from the trigger form; "
+        f"invalid references: {', '.join(invalid)}.",
+        (
+            "Call get_form_fields or inspect_workflow_gaps, ask the user which "
+            f"field to use, then retry. Available fields: {available}"
+        ),
+    )
+
+
+def _trigger_form_questions(client: JotformClient, workflow_id: str) -> tuple[str | None, dict, str | None]:
+    try:
+        combined = client.get_workflow_combined(workflow_id)
+    except JotformAPIError as e:
+        return None, {}, f"Could not read workflow trigger form: {e}"
+
+    elements = [e for e in (combined.get("elements") or []) if isinstance(e, dict)]
+    trigger_form_id = workflow_inspector.trigger_form_id(elements)
+    if not trigger_form_id:
+        return None, {}, "Workflow has no trigger form."
+
+    try:
+        return trigger_form_id, client.get_form_questions(trigger_form_id), None
+    except JotformAPIError as e:
+        return trigger_form_id, {}, f"Could not read trigger form fields: {e}"
+
+
+def _email_field_reference(question_id: str, question: dict, form_title: str | None = None) -> dict:
+    return {
+        "id": str(uuid4()),
+        "value": "{" + str(question.get("name") or question_id) + "}",
+        "text": question.get("text") or question_id,
+        "isValid": True,
+        "isQuestion": True,
+        "style": {"backgroundColor": "#007862", "--pillColor": "#007862"},
+        "isBright": False,
+        "formTitle": form_title or "Form",
+    }
+
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _fixed_email_reference(email: str) -> dict:
+    return {
+        "id": str(uuid4()),
+        "value": email,
+        "text": email,
+        "isValid": True,
+        "isQuestion": False,
+    }
+
+
+def _question_name_by_token(questions: dict, token: str) -> str | None:
+    wanted = token.strip().lower()
+    for qid, question in questions.items():
+        if not isinstance(question, dict):
+            continue
+        candidates = {
+            str(qid).strip().lower(),
+            str(question.get("qid") or "").strip().lower(),
+            str(question.get("name") or "").strip().lower(),
+            str(question.get("text") or "").strip().lower(),
+        }
+        if wanted in candidates:
+            return str(question.get("name") or qid)
+    return None
+
+
+def _normalize_content_field_tokens(content: str, questions: dict) -> tuple[str, bool]:
+    changed = False
+
+    def replace(match: re.Match) -> str:
+        nonlocal changed
+        token = match.group(1)
+        if token in {"id", "form_title"} or token.startswith("q"):
+            return match.group(0)
+        question_name = _question_name_by_token(questions, token)
+        if not question_name:
+            return match.group(0)
+        changed = True
+        return "{" + question_name + "}"
+
+    return re.sub(r"\{([^{}]+)\}", replace, content), changed
+
+
+def _normalize_assignee_fields(
+    client: JotformClient,
+    workflow_id: str,
+    config: dict,
+    fields: tuple[str, ...],
+) -> tuple[dict, str | None, str | None]:
+    if not any(field in config for field in fields):
+        return config, None, None
+
+    trigger_form_id, questions, trigger_error = _trigger_form_questions(client, workflow_id)
+    email_questions = {
+        str(qid): q for qid, q in questions.items()
+        if isinstance(q, dict) and q.get("type") == "control_email"
+    }
+    by_label = {
+        str(q.get("text", "")).strip().lower(): (qid, q)
+        for qid, q in email_questions.items()
+        if q.get("text")
+    }
+    form_title = None
+    for question in questions.values():
+        if isinstance(question, dict) and question.get("type") == "control_head":
+            form_title = question.get("text")
+            break
+
+    normalized = dict(config)
+    changed = False
+    for field in fields:
+        value = normalized.get(field)
+        items = value if isinstance(value, list) else [value]
+        next_items = []
+        for item in items:
+            if isinstance(item, dict) and item.get("isQuestion") is True:
+                next_items.append(item)
+                continue
+
+            raw = ""
+            if isinstance(item, dict):
+                raw = str(item.get("value") or item.get("text") or item.get("id") or "").strip()
+            elif isinstance(item, str):
+                raw = item.strip()
+
+            if not raw:
+                next_items.append(item)
+                continue
+
+            qid = str((item or {}).get("id") if isinstance(item, dict) else raw)
+            question = email_questions.get(qid)
+            if question is None and isinstance(item, dict):
+                label = str(item.get("text") or item.get("value") or "").strip().lower()
+                match = by_label.get(label)
+                if match:
+                    qid, question = match
+            if question is not None:
+                next_items.append(_email_field_reference(qid, question, form_title))
+                changed = True
+                continue
+
+            if EMAIL_RE.match(raw):
+                next_items.append(_fixed_email_reference(raw))
+                changed = True
+                continue
+
+            if trigger_error and not questions:
+                return normalized, None, trigger_error
+            return normalized, None, (
+                f"{field} must be a valid email address or a real email field "
+                f"from the trigger form; got {raw!r}."
+            )
+        normalized[field] = next_items
+
+    hint = (
+        f"Normalized assignee/approver fields using builder recipient shape"
+        f"{' and trigger form ' + trigger_form_id if trigger_form_id else ''}."
+        if changed else None
+    )
+    return normalized, hint, None
+
+
+EMAIL_MODAL_DEFAULTS = {
+    "attachment": {"name": "", "url": "", "type": ""},
+    "senderEmail": "noreply@jotform.com",
+    "hideEmptyFields": "1",
+    "uploadAttachment": "0",
+    "recipientLimit": 10,
+    "cc": [],
+    "bcc": [],
+    "replyTo": [],
+    "showCcField": False,
+    "showBccField": False,
+    "pdfattachment": "0",
+    "passwordEnabled": "0",
+    "pdfId": "",
+    "pdfPassword": "",
+    "isRecipientExpanded": True,
+    "isDirty": "Yes",
+}
+
+
+def _html_email_content(content: str) -> str:
+    stripped = content.strip()
+    if "<html" in stripped.lower() or "<body" in stripped.lower():
+        return content
+    paragraphs = [
+        f"<p>{html.escape(part).replace(chr(10), '<br />')}</p>"
+        for part in stripped.split("\n\n")
+        if part.strip()
+    ]
+    body = "\n".join(paragraphs) or "<p></p>"
+    return "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n" + body + "\n</body>\n</html>"
+
+
+def _normalize_email_config(
+    client: JotformClient,
+    workflow_id: str,
+    config: dict,
+) -> tuple[dict, str | None, str | None]:
+    normalized = {**EMAIL_MODAL_DEFAULTS, **config}
+    hint_parts = []
+    if isinstance(normalized.get("content"), str) and normalized["content"].strip():
+        html_content = _html_email_content(normalized["content"])
+        if html_content != normalized["content"]:
+            normalized["content"] = html_content
+            hint_parts.append("wrapped plain text email content as HTML")
+        trigger_form_id, questions, _ = _trigger_form_questions(client, workflow_id)
+        if questions:
+            normalized_content, changed = _normalize_content_field_tokens(
+                normalized["content"], questions
+            )
+            if changed:
+                normalized["content"] = normalized_content
+                hint_parts.append(
+                    f"normalized email content field tokens from trigger form {trigger_form_id}"
+                )
+
+    normalized, recipient_hint, recipient_error = _normalize_email_recipients(
+        client, workflow_id, normalized
+    )
+    if recipient_error:
+        return normalized, None, recipient_error
+    if recipient_hint:
+        hint_parts.append(recipient_hint)
+
+    return normalized, "; ".join(hint_parts) if hint_parts else None, None
+
+
+def _normalize_email_recipients(
+    client: JotformClient,
+    workflow_id: str,
+    config: dict,
+) -> tuple[dict, str | None, str | None]:
+    recipient_fields = ("to", "replyTo", "cc", "bcc")
+    if not any(field in config for field in recipient_fields):
+        return config, None, None
+
+    trigger_form_id, questions, error = _trigger_form_questions(client, workflow_id)
+    if error:
+        return config, None, error
+
+    email_questions = {
+        str(qid): q for qid, q in questions.items()
+        if isinstance(q, dict) and q.get("type") == "control_email"
+    }
+    by_label = {
+        str(q.get("text", "")).strip().lower(): (qid, q)
+        for qid, q in email_questions.items()
+        if q.get("text")
+    }
+    form_title = None
+    for question in questions.values():
+        if isinstance(question, dict) and question.get("type") == "control_head":
+            form_title = question.get("text")
+            break
+
+    normalized = dict(config)
+    changed = False
+    for field in recipient_fields:
+        recipients = normalized.get(field)
+        if not isinstance(recipients, list):
+            continue
+        next_recipients = []
+        for item in recipients:
+            if not isinstance(item, dict) or item.get("isQuestion") is True:
+                next_recipients.append(item)
+                continue
+            question = None
+            qid = str(item.get("id") or "")
+            if qid in email_questions:
+                question = email_questions[qid]
+            else:
+                label = str(item.get("text") or item.get("value") or "").strip().lower()
+                match = by_label.get(label)
+                if match:
+                    qid, question = match
+            if question is None:
+                next_recipients.append(item)
+                continue
+            next_recipients.append(_email_field_reference(qid, question, form_title))
+            changed = True
+        normalized[field] = next_recipients
+
+    hint = (
+        f"Normalized recipient field references from trigger form {trigger_form_id}."
+        if changed else None
+    )
+    return normalized, hint, None
+
+
+def _merge_outcome_updates(current: dict, config: dict) -> dict:
+    if "outcomes" not in config or not isinstance(config.get("outcomes"), list):
+        return config
+
+    current_outcomes = [
+        outcome for outcome in (current.get("outcomes") or [])
+        if isinstance(outcome, dict)
+    ]
+
+    def keys(outcome: dict) -> list[tuple[str, str]]:
+        result = []
+        for key in ("outcomeID", "id"):
+            if outcome.get(key) is not None:
+                result.append((key, str(outcome.get(key))))
+        label = tb.outcome_label(outcome)
+        if label:
+            result.append(("label", label.strip().lower()))
+        return result
+
+    by_key = {
+        key: outcome
+        for outcome in current_outcomes
+        for key in keys(outcome)
+    }
+
+    merged = []
+    for outcome in config["outcomes"]:
+        if not isinstance(outcome, dict):
+            merged.append(outcome)
+            continue
+        current_match = next((by_key.get(key) for key in keys(outcome) if by_key.get(key)), None)
+        if current_match is None:
+            merged.append(outcome)
+            continue
+        preserved = {**current_match, **outcome}
+        if "linkID" not in outcome and current_match.get("linkID"):
+            preserved["linkID"] = current_match.get("linkID")
+        merged.append(preserved)
+
+    return {**config, "outcomes": merged}
+
+
+def _extract_ai_form_id(content: dict) -> str | None:
+    for key in ("resource_id", "form_id", "formID", "id"):
+        value = content.get(key)
+        if value is not None:
+            return str(value)
+    messages = content.get("messages") or []
+    for message in messages:
+        if isinstance(message, dict):
+            value = message.get("form_id") or message.get("resource_id")
+            if value is not None:
+                return str(value)
+    return None
+
+
+def _bind_and_verify_trigger(
+    client: JotformClient,
+    workflow_id: str,
+    trigger_form_id: str,
+    title: str,
+) -> CreateWorkflowResult | None:
+    try:
+        client.set_trigger_form(workflow_id, trigger_form_id)
+    except JotformAPIError as e:
+        return CreateWorkflowResult(
+            workflow_id=str(workflow_id), title=title,
+            workflow_url=_workflow_url(str(workflow_id)),
+            trigger_form_id=trigger_form_id,
+            trigger_form_url=_form_url(trigger_form_id),
+            error=f"Workflow created, but setting trigger form failed: {e}",
+        )
+
+    try:
+        start = client.get_element(workflow_id, 1)
+    except JotformAPIError as e:
+        return CreateWorkflowResult(
+            workflow_id=str(workflow_id), title=title,
+            workflow_url=_workflow_url(str(workflow_id)),
+            trigger_form_id=trigger_form_id,
+            trigger_form_url=_form_url(trigger_form_id),
+            error=f"Workflow created, trigger form set, but could not verify: {e}",
+        )
+
+    if str(start.get("resourceID")) != str(trigger_form_id):
+        return CreateWorkflowResult(
+            workflow_id=str(workflow_id), title=title,
+            workflow_url=_workflow_url(str(workflow_id)),
+            trigger_form_id=trigger_form_id,
+            trigger_form_url=_form_url(trigger_form_id),
+            error=(
+                "Workflow created, but the trigger form binding could "
+                "not be verified — the start point doesn't show this "
+                "form id after the write. Tell the user to check the "
+                "trigger form in the Jotform builder (Settings -> "
+                "trigger form) and set it manually if it's missing."
+            ),
+        )
+
+    return None
+
+
 def register(mcp: MCPServer, client: JotformClient) -> None:
+    @mcp.tool()
+    def create_form_with_ai(
+        prompt: Annotated[str, Field(
+            description=(
+                "Natural-language description of the form to create. Ask the "
+                "user what fields, labels, language, and purpose they want "
+                "before calling this. The created form can be passed to "
+                "create_workflow as trigger_form_id."
+            )
+        )],
+        form_type: Annotated[str, Field(
+            description='Form type preference for Jotform AI. Default "classic".'
+        )] = "classic",
+        language: Annotated[str, Field(
+            description='Form language preference. Default "en"; use "tr" when the user wants Turkish.'
+        )] = "en",
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
+    ) -> CreateAIFormResult:
+        """
+        Create a new Jotform form from an AI prompt.
+
+        Use this only after the user chooses "create a new form" for a
+        workflow trigger and describes what the form should collect.
+        """
+        try:
+            content = client.create_form_with_ai(prompt, form_type=form_type, language=language)
+        except JotformAPIError as e:
+            return CreateAIFormResult(error=str(e))
+
+        form_id = _extract_ai_form_id(content)
+        if not form_id:
+            return CreateAIFormResult(error=f"No form id in AI form response: {content!r}")
+
+        questions = content.get("questions") if isinstance(content.get("questions"), dict) else {}
+        title = (questions.get("1") or {}).get("text") if isinstance(questions.get("1"), dict) else None
+        return CreateAIFormResult(
+            form_id=form_id,
+            form_url=_form_url(form_id),
+            title=title,
+            summary=content.get("summary"),
+            questions=questions,
+        )
+
     @mcp.tool()
     def create_workflow(
         title: Annotated[str, Field(description="Workflow name.")],
         trigger_form_id: Annotated[str, Field(
             description=(
-                "Optional — the form (from list_forms) whose submissions "
-                "should trigger this workflow. Binding takes two API calls "
-                "under the hood (see JotformClient.set_trigger_form) and "
-                "the result is verified by reading the start point back — "
-                "never trusted from the write response alone. If "
-                "verification fails, the workflow is still created and the "
-                "result explains the user needs to set the trigger form "
-                "manually in the Jotform builder (Settings -> trigger "
-                "form, or drag a form onto the start point)."
+                "Required unless allow_without_trigger=true — the form (from "
+                "list_forms) whose submissions should trigger this workflow. "
+                "Before calling create_workflow, decide the form strategy "
+                "with the user: existing form or new AI-created form. For an "
+                "existing form, call list_forms first and use the selected id "
+                "here. For a new form, use create_workflow_with_ai_form "
+                "instead of this tool. Binding takes two API calls under the "
+                "hood and is verified by reading the start point back."
             )
         )] = "",
+        allow_without_trigger: Annotated[bool, Field(
+            description=(
+                "Default false. Set true only if the user explicitly asks for "
+                "a draft workflow with no trigger form. Normal workflows must "
+                "have a trigger form."
+            )
+        )] = False,
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> CreateWorkflowResult:
         """
-        Create a new, empty workflow with a start point.
+        Create a new workflow with a trigger form.
+
+        Before using this tool in a new-workflow conversation, first ask the
+        user how the workflow should be triggered:
+
+        1. Use an existing form — then call list_forms and pass the chosen
+           form id as trigger_form_id.
+        2. Create a new form first — use create_workflow_with_ai_form instead.
+        3. No trigger form yet — only proceed with allow_without_trigger=true
+           if the user explicitly asks for a draft workflow without one.
 
         Returns the new workflow_id. Use add_step to start adding steps.
         """
+        if not trigger_form_id and not allow_without_trigger:
+            return CreateWorkflowResult(
+                error=(
+                    "A workflow needs a trigger form. Before creating it, ask "
+                    "the user whether to use an existing form or create a new "
+                    "AI form. Existing form: call list_forms, then pass the "
+                    "chosen form id as trigger_form_id. New form: use "
+                    "create_workflow_with_ai_form. Only use "
+                    "allow_without_trigger=true if the user explicitly asks "
+                    "for a formsuz/no-trigger draft."
+                ),
+            )
+
         try:
             created = client.create_workflow(title)
         except JotformAPIError as e:
@@ -59,48 +700,95 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             return CreateWorkflowResult(error=f"No workflow id in response: {created!r}")
 
         if trigger_form_id:
-            try:
-                client.set_trigger_form(workflow_id, trigger_form_id)
-            except JotformAPIError as e:
-                return CreateWorkflowResult(
-                    workflow_id=str(workflow_id), title=title,
-                    error=f"Workflow created, but setting trigger form failed: {e}",
-                )
-
-            # Never trust a write response alone (decision-log rule: no
-            # boolean flag or 200 counts as proof of an effect) — read the
-            # start point back and confirm the form id actually landed.
-            # Element 1 is always the start point (jotform_client.create_workflow
-            # creates it that way, and set_trigger_form always targets
-            # elementID 1) — read it with get_element, not get_elements:
-            # per jotform_client's own docstring, the plural/list endpoint
-            # only summarizes, the singular endpoint returns the full
-            # config. Verifying against the summary risks a false "could
-            # not be verified" if resourceID happens to be one of the
-            # fields the summary omits.
-            try:
-                start = client.get_element(workflow_id, 1)
-            except JotformAPIError as e:
-                return CreateWorkflowResult(
-                    workflow_id=str(workflow_id), title=title,
-                    error=f"Workflow created, trigger form set, but could not verify: {e}",
-                )
-
-            if str(start.get("resourceID")) != str(trigger_form_id):
-                return CreateWorkflowResult(
-                    workflow_id=str(workflow_id), title=title,
-                    error=(
-                        "Workflow created, but the trigger form binding could "
-                        "not be verified — the start point doesn't show this "
-                        "form id after the write. Tell the user to check the "
-                        "trigger form in the Jotform builder (Settings -> "
-                        "trigger form) and set it manually if it's missing."
-                    ),
-                )
+            error = _bind_and_verify_trigger(client, str(workflow_id), trigger_form_id, title)
+            if error is not None:
+                return error
 
         return CreateWorkflowResult(
             workflow_id=str(workflow_id), title=title,
+            workflow_url=_workflow_url(str(workflow_id)),
             trigger_form_id=trigger_form_id or None,
+            trigger_form_url=_form_url(trigger_form_id or None),
+        )
+
+    @mcp.tool()
+    def create_workflow_with_ai_form(
+        title: Annotated[str, Field(description="Workflow name.")],
+        form_prompt: Annotated[str, Field(
+            description=(
+                "Natural-language description of the new trigger form to "
+                "create before creating the workflow. Include the form's "
+                "purpose and desired fields. Default language is English; "
+                "mention Turkish only if the user asks for it."
+            )
+        )],
+        form_type: Annotated[str, Field(
+            description='Form type preference for Jotform AI. Default "classic".'
+        )] = "classic",
+        language: Annotated[str, Field(
+            description='Form language preference. Default "en"; use "tr" when the user wants Turkish.'
+        )] = "en",
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
+    ) -> CreateWorkflowWithAIFormResult:
+        """
+        Create a new AI-generated form, then create a workflow triggered by it.
+
+        Use this when the user wants a new form rather than an existing form.
+        Ask what the form should collect before calling this tool.
+        """
+        try:
+            form_content = client.create_form_with_ai(
+                form_prompt, form_type=form_type, language=language
+            )
+        except JotformAPIError as e:
+            return CreateWorkflowWithAIFormResult(error=f"Creating AI form failed: {e}")
+
+        form_id = _extract_ai_form_id(form_content)
+        if not form_id:
+            return CreateWorkflowWithAIFormResult(
+                error=f"No form id in AI form response: {form_content!r}"
+            )
+
+        try:
+            created = client.create_workflow(title)
+        except JotformAPIError as e:
+            return CreateWorkflowWithAIFormResult(
+                trigger_form_id=form_id,
+                trigger_form_url=_form_url(form_id),
+                error=f"AI form created ({form_id}), but workflow creation failed: {e}",
+            )
+
+        workflow_id = created.get("id") or created.get("workflowID")
+        if not workflow_id:
+            return CreateWorkflowWithAIFormResult(
+                trigger_form_id=form_id,
+                trigger_form_url=_form_url(form_id),
+                error=f"AI form created ({form_id}), but no workflow id in response: {created!r}",
+            )
+
+        error = _bind_and_verify_trigger(client, str(workflow_id), form_id, title)
+        if error is not None:
+            return CreateWorkflowWithAIFormResult(
+                workflow_id=error.workflow_id,
+                workflow_url=error.workflow_url,
+                title=error.title,
+                trigger_form_id=form_id,
+                trigger_form_url=_form_url(form_id),
+                error=error.error,
+            )
+
+        questions = form_content.get("questions") if isinstance(form_content.get("questions"), dict) else {}
+        form_title = (questions.get("1") or {}).get("text") if isinstance(questions.get("1"), dict) else None
+        return CreateWorkflowWithAIFormResult(
+            workflow_id=str(workflow_id),
+            workflow_url=_workflow_url(str(workflow_id)),
+            title=title,
+            trigger_form_id=form_id,
+            trigger_form_url=_form_url(form_id),
+            form_title=form_title,
+            form_summary=form_content.get("summary"),
+            questions=questions,
         )
 
     @mcp.tool()
@@ -113,7 +801,16 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             description=(
                 "Fields for this step type — call get_step_schema first to "
                 "see what it accepts. Unknown fields are dropped, not "
-                "rejected; check `warnings` in the result."
+                "rejected; check `warnings` in the result. Before adding "
+                "steps whose behavior depends on user intent — tasks, emails, "
+                "approvals, conditions, conditional branches, or any step with "
+                "outcomes/description/message fields — ask one short question "
+                "for the missing essentials instead of creating an empty "
+                "placeholder. Examples: for a task ask who it is assigned to "
+                "and what should be done; for a branch ask the branch names "
+                "and conditions; for an approval ask the approver and outcomes. "
+                "The server refuses empty task/approval/assign/email/sign/"
+                "condition steps."
             )
         )],
         after_step_id: Annotated[str, Field(
@@ -125,9 +822,22 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "that, with an outcome if the source branches)."
             )
         )] = "",
+        allow_duplicate: Annotated[bool, Field(
+            description=(
+                "Default false. Set true only after the user explicitly wants "
+                "another similar step instead of reusing/updating/connecting "
+                "the existing one."
+            )
+        )] = False,
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> AddStepResult:
         """
         Add a step to a workflow.
+
+        If the step needs meaningful content or outcomes, ask for the minimum
+        missing details first. Keep the question concise: one compact question
+        covering assignee/message/outcomes is better than a long checklist.
 
         Returns the new step_id. Position on the canvas is chosen
         automatically.
@@ -139,10 +849,87 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 error=str(e), hint="Call list_step_types to see valid values.",
             )
 
+        missing = _missing_required_step_details(step_type, clean_config)
+        if missing:
+            return AddStepResult(
+                type=step_type,
+                warnings=warnings,
+                error=(
+                    f"{step_type} needs more detail before it can be added. "
+                    f"Missing: {', '.join(missing)}."
+                ),
+                hint=(
+                    "Ask the user one short question for these essentials, "
+                    "then call add_step again with those fields. Do not create "
+                    "an empty placeholder unless a separate draft-specific "
+                    "tool/flow explicitly allows it."
+                ),
+            )
+
+        field_error, field_hint = _invalid_condition_field_message(
+            client, workflow_id, step_type, clean_config
+        )
+        if field_error:
+            return AddStepResult(
+                type=step_type,
+                warnings=warnings,
+                error=field_error,
+                hint=field_hint,
+            )
+
+        assignee_fields = ASSIGNEE_FIELDS_BY_STEP_TYPE.get(step_type, ())
+        if assignee_fields:
+            clean_config, assignee_hint, assignee_error = _normalize_assignee_fields(
+                client, workflow_id, clean_config, assignee_fields
+            )
+            if assignee_error:
+                return AddStepResult(
+                    type=step_type,
+                    warnings=warnings,
+                    error=assignee_error,
+                    hint="Use a valid fixed email address or call get_form_fields and choose a real email field.",
+                )
+            if assignee_hint:
+                warnings.append(assignee_hint)
+
+        if step_type in ("workflow_send_email", "workflow_reminder_email"):
+            clean_config, recipient_hint, recipient_error = _normalize_email_config(
+                client, workflow_id, clean_config
+            )
+            if recipient_error:
+                return AddStepResult(
+                    type=step_type,
+                    warnings=warnings,
+                    error=recipient_error,
+                    hint="Bind a trigger form first, then use a real email field or fixed email address.",
+                )
+            if recipient_hint:
+                warnings.append(recipient_hint)
+
         try:
             elements = client.get_elements(workflow_id)
         except JotformAPIError as e:
             return AddStepResult(error=str(e))
+
+        if not allow_duplicate:
+            duplicate = _find_duplicate_step(elements, step_type, clean_config)
+            if duplicate is not None:
+                existing_step_id = str(duplicate.get("element_id"))
+                return AddStepResult(
+                    type=step_type,
+                    existing_step_id=existing_step_id,
+                    warnings=warnings,
+                    error=(
+                        f"A similar {step_type} step already exists as step "
+                        f"{existing_step_id}. I did not create a duplicate."
+                    ),
+                    hint=(
+                        "Use connect_steps to wire the existing step, "
+                        "update_step to change it, or call add_step again with "
+                        "allow_duplicate=true only if the user explicitly wants "
+                        "a second similar step."
+                    ),
+                )
 
         after_id = after_step_id or None
         if after_id is not None:
@@ -162,8 +949,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     hint=(
                         "Add this step without after_step_id, then use "
                         "connect_steps to wire it in explicitly — pass an "
-                        "outcome if step {after_id} is an if/else or "
-                        "conditional branch."
+                        "outcome if step {after_id} is an if/else, "
+                        "conditional branch, approval, or task with outcomes."
                     ).format(after_id=after_id),
                 )
 
@@ -172,6 +959,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         create_entry = tb.build_element_create(step_type, element_id, clean_config, position)
 
         try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason(f"before add_step {step_type}", intent, reason),
+                tool_name="add_step",
+            )
             client.update_tree(workflow_id, elements=[create_entry])
         except JotformAPIError as e:
             return AddStepResult(error=str(e))
@@ -204,14 +997,17 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         to_step_id: Annotated[str, Field(description="From get_workflow's steps list.")],
         outcome: Annotated[str, Field(
             description=(
-                'Required if from_step_id is an if/else or conditional '
-                'branch step — e.g. "TRUE", "FALSE", or a custom branch '
-                "name. Check get_workflow's connections or "
-                "get_step_details on from_step_id to see what outcomes "
-                "exist and which are already used. Leave empty for "
-                "non-branching steps."
+                'Required if from_step_id is a branching step: if/else, '
+                'conditional branch, approval, or task with outcomes. '
+                'Examples: "TRUE", "FALSE", "Approve", "Reject", '
+                'or a custom task/branch outcome name. Check get_workflow '
+                "or get_step_details on from_step_id to see what outcomes "
+                "exist and which are already used. Leave empty only for "
+                "steps without outcomes."
             )
         )] = "",
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> ConnectStepsResult:
         """
         Connect two existing steps.
@@ -257,6 +1053,16 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         link_id = tb.next_id([l.get("link_id") for l in links])
         try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason(
+                    f"before connect_steps {from_step_id}->{to_step_id}",
+                    intent,
+                    reason,
+                ),
+                tool_name="connect_steps",
+            )
             client.update_tree(
                 workflow_id,
                 links=[tb.build_link_create(link_id, from_step_id, to_step_id)],
@@ -266,8 +1072,10 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         if is_branching:
             try:
+                outcome_label = tb.outcome_label(matched_outcome) or outcome
                 client.update_tree(
                     workflow_id,
+                    links=[tb.build_link_label_update(link_id, outcome_label)],
                     elements=[tb.build_outcome_update(
                         source, matched_outcome["outcomeID"], link_id
                     )],
@@ -292,13 +1100,15 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         link_id: Annotated[str, Field(
             description="From get_workflow's connections list."
         )],
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> DisconnectStepsResult:
         """
         Remove a single connection between two steps, without deleting
         either step.
 
         If the connection leaves a branching step (if/else, conditional
-        branch, approval), that outcome's link is cleared first — so it
+        branch, approval, or task with outcomes), that outcome's link is cleared first — so it
         shows up as unconnected again and can be wired to something else
         with connect_steps. Without this, the outcome would still point at
         a link_id that no longer exists: resolve_outcome would wrongly
@@ -330,6 +1140,19 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             return DisconnectStepsResult(error=str(e))
 
         outcome_cleared = None
+        try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason(f"before disconnect_steps {link_id}", intent, reason),
+                tool_name="disconnect_steps",
+            )
+        except JotformAPIError as e:
+            return DisconnectStepsResult(
+                from_step=str(from_step_id),
+                error=f"Could not save a revision before disconnecting: {e}",
+            )
+
         if source.get("type") in schema_registry.BRANCHING_TYPES:
             outcome = tb.find_outcome_by_link(source, link_id)
             if outcome is not None:
@@ -374,6 +1197,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "to see current values, get_step_schema for valid fields."
             )
         )],
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
     ) -> UpdateStepResult:
         """
         Change an existing step's configuration.
@@ -401,7 +1226,55 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 error="Nothing to update — no valid fields in config.",
             )
 
+        clean_config = _merge_outcome_updates(current, clean_config)
+
+        field_error, field_hint = _invalid_condition_field_message(
+            client, workflow_id, step_type, clean_config
+        )
+        if field_error:
+            return UpdateStepResult(
+                step_id=step_id,
+                warnings=warnings,
+                error=field_error,
+                hint=field_hint,
+            )
+
+        assignee_fields = ASSIGNEE_FIELDS_BY_STEP_TYPE.get(step_type, ())
+        if assignee_fields:
+            clean_config, assignee_hint, assignee_error = _normalize_assignee_fields(
+                client, workflow_id, clean_config, assignee_fields
+            )
+            if assignee_error:
+                return UpdateStepResult(
+                    step_id=step_id,
+                    warnings=warnings,
+                    error=assignee_error,
+                    hint="Use a valid fixed email address or call get_form_fields and choose a real email field.",
+                )
+            if assignee_hint:
+                warnings.append(assignee_hint)
+
+        if step_type in ("workflow_send_email", "workflow_reminder_email"):
+            clean_config, recipient_hint, recipient_error = _normalize_email_config(
+                client, workflow_id, clean_config
+            )
+            if recipient_error:
+                return UpdateStepResult(
+                    step_id=step_id,
+                    warnings=warnings,
+                    error=recipient_error,
+                    hint="Bind a trigger form first, then use a real email field or fixed email address.",
+                )
+            if recipient_hint:
+                warnings.append(recipient_hint)
+
         try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason(f"before update_step {step_id}", intent, reason),
+                tool_name="update_step",
+            )
             client.update_tree(
                 workflow_id, elements=[tb.build_element_update(step_id, clean_config)]
             )

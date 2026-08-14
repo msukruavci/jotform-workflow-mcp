@@ -26,14 +26,57 @@ from typing import Annotated
 from mcp.server import MCPServer
 from pydantic import Field
 
-from mcp_server import graph, schema_registry
+from mcp_server import graph, revision_log, schema_registry, workflow_inspector
 from mcp_server import tree_builder as tb
 from mcp_server.schema_registry import BRANCHING_TYPES
 from mcp_server.jotform_client import JotformClient, JotformAPIError
 from mcp_server.models import (
     Connection, FormField, FormFieldList, FormList, FormSummary, Step,
     StepDetail, WorkflowDetail, WorkflowHealth, WorkflowList, WorkflowSummary,
+    WorkflowGap, WorkflowGapReport, WorkflowRevisionList, WorkflowRevisionSummary,
 )
+
+
+def _workflow_url(workflow_id: str | None) -> str | None:
+    return f"https://www.jotform.com/workflow/{workflow_id}/build" if workflow_id else None
+
+
+def _form_url(form_id: str | None) -> str | None:
+    return f"https://www.jotform.com/build/{form_id}" if form_id else None
+
+
+def _sign_url_from_config(config: dict) -> str | None:
+    for key in ("signDocumentID", "sign_document_id", "documentID", "document_id", "sign_id", "signID"):
+        value = config.get(key)
+        if value:
+            return f"https://www.jotform.com/sign/{value}"
+    return None
+
+
+def _field_options(question: dict) -> list[str]:
+    options = question.get("options")
+    if isinstance(options, str):
+        return [item.strip() for item in options.split("|") if item.strip()]
+    if isinstance(options, list):
+        return [str(item).strip() for item in options if str(item).strip()]
+    return []
+
+
+def _hydrate_elements_for_inspection(client: JotformClient, workflow_id: str, elements: list[dict]) -> list[dict]:
+    hydrated = []
+    for element in elements:
+        element_id = element.get("element_id")
+        if element_id is None:
+            hydrated.append(element)
+            continue
+        try:
+            full = client.get_element(workflow_id, element_id)
+        except JotformAPIError:
+            hydrated.append(element)
+            continue
+        hydrated.append({**element, **full} if isinstance(full, dict) else element)
+    return hydrated
+
 
 def _outcome_map(elements: list[dict]) -> tuple[dict[str, str], list[str]]:
     """
@@ -95,6 +138,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         return WorkflowList(workflows=[
             WorkflowSummary(
                 workflow_id=w.get("id"),
+                workflow_url=_workflow_url(w.get("id")),
                 title=w.get("title"),
                 status=w.get("status"),
                 updated_at=w.get("updated_at"),
@@ -112,9 +156,10 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         the structure is sound.
 
         Each connection carries an `outcome` when it leaves a branching step:
-        TRUE or FALSE on an if/else, or the branch name on a conditional
-        branch. That is how you tell two paths apart. A split's paths are
-        equivalent and carry no outcome.
+        TRUE or FALSE on an if/else, the branch name on a conditional
+        branch, or the button/outcome text on an approval/task. That is how
+        you tell two paths apart. A split's paths are equivalent and carry
+        no outcome.
 
         `health` reports steps that can never run (unreachable from the start
         point), steps that lead nowhere, branches defined but wired to nothing,
@@ -127,7 +172,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         try:
             combined = client.get_workflow_combined(workflow_id)
         except JotformAPIError as e:
-            return WorkflowDetail(workflow_id=workflow_id, error=str(e))
+            return WorkflowDetail(workflow_id=workflow_id, workflow_url=_workflow_url(workflow_id), error=str(e))
 
         wf = combined.get("workflow", {}) or {}
         elements = [el for el in (combined.get("elements") or []) if isinstance(el, dict)]
@@ -147,6 +192,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 type=step_type,
                 label=el.get("name") or schema_registry.default_label(step_type),
                 trigger_form_id=el.get("resourceID"),
+                trigger_form_url=_form_url(el.get("resourceID")),
+                sign_url=_sign_url_from_config(el) if step_type == "workflow_sign_document" else None,
                 known_type=known,
             ))
 
@@ -166,29 +213,19 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             [c.model_dump() for c in connections],
         )
 
-        # A branching step whose exits came back unlabelled means the outcome
-        # data moved or is missing. Say so rather than letting the model treat
-        # the two paths as interchangeable.
-        diagnostics: dict = {}
-        branching_ids = {
-            str(el.get("element_id")) for el in elements
-            if el.get("type") in BRANCHING_TYPES
-        }
-        unlabelled = sorted(
-            sid for sid in branching_ids
-            if any(c.from_step == sid for c in connections)
-            and not any(c.from_step == sid and c.outcome for c in connections)
-        )
-        if unlabelled:
-            diagnostics["unlabelled_branching_steps"] = unlabelled
+        diagnostics: dict = workflow_inspector.branch_diagnostics(elements, links)
+        if (
+            diagnostics["unlabelled_branching_steps"]
+            or diagnostics["invalid_branch_links"]
+        ):
             diagnostics["note"] = (
-                "These steps branch, but their outcomes carried no link mapping, "
-                "so which path is which cannot be determined. Run "
-                "probes/inspect_outcomes.py against this workflow."
+                "Branch links must be represented both in links[] and in the "
+                "source element's outcomes[].linkID. These entries do not match."
             )
 
         return WorkflowDetail(
             workflow_id=str(wf.get("id")) if wf.get("id") is not None else workflow_id,
+            workflow_url=_workflow_url(str(wf.get("id")) if wf.get("id") is not None else workflow_id),
             title=wf.get("title"),
             status=wf.get("status"),
             publish_status=wf.get("publishStatus"),
@@ -198,6 +235,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 **health_raw,
                 unknown_types=unknown_types,
                 unconnected_branches=unconnected_branches,
+                invalid_branch_links=diagnostics["invalid_branch_links"],
+                unlabelled_branching_steps=diagnostics["unlabelled_branching_steps"],
             ),
             diagnostics=diagnostics,
         )
@@ -222,7 +261,94 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         if not isinstance(config, dict):
             return StepDetail(step_id=step_id, error=f"Unexpected response: {type(config).__name__}")
 
-        return StepDetail(step_id=step_id, type=config.get("type"), config=config)
+        return StepDetail(
+            step_id=step_id,
+            type=config.get("type"),
+            sign_url=_sign_url_from_config(config) if config.get("type") == "workflow_sign_document" else None,
+            config=config,
+        )
+
+    @mcp.tool()
+    def list_workflow_revisions(
+        workflow_id: Annotated[str, Field(description="From list_workflows.")],
+        limit: Annotated[int, Field(
+            description="Maximum revisions to return, newest first. Default 10."
+        )] = 10,
+    ) -> WorkflowRevisionList:
+        """
+        List saved workflow revisions for this MCP server session/history.
+
+        Revisions are full snapshots captured automatically before mutating
+        tools write to Jotform. Use restore_workflow_revision to preview and
+        restore one of them.
+        """
+        summaries = revision_log.list_workflow_revisions(workflow_id, limit=limit)
+        return WorkflowRevisionList(
+            workflow_id=workflow_id,
+            workflow_url=_workflow_url(workflow_id),
+            revisions=[WorkflowRevisionSummary(**summary) for summary in summaries],
+        )
+
+    @mcp.tool()
+    def inspect_workflow_gaps(
+        workflow_id: Annotated[str, Field(description="From list_workflows.")],
+    ) -> WorkflowGapReport:
+        """
+        Check for incomplete workflow setup before continuing or publishing.
+
+        This catches empty links, unwired branch outcomes, missing assignees,
+        missing email/task content, and condition fields that are not real
+        fields on the trigger form. Call this before presenting a workflow as
+        ready, and when the user asks what still needs to be completed.
+        """
+        try:
+            combined = client.get_workflow_combined(workflow_id)
+        except JotformAPIError as e:
+            return WorkflowGapReport(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                error=str(e),
+            )
+
+        elements = [el for el in (combined.get("elements") or []) if isinstance(el, dict)]
+        trigger_form_id = workflow_inspector.trigger_form_id(elements)
+        questions = {}
+        if trigger_form_id:
+            try:
+                questions = client.get_form_questions(trigger_form_id)
+            except JotformAPIError as e:
+                return WorkflowGapReport(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    trigger_form_id=trigger_form_id,
+                    trigger_form_url=_form_url(trigger_form_id),
+                    error=f"Could not inspect trigger form fields: {e}",
+                )
+
+        combined = {
+            **combined,
+            "elements": _hydrate_elements_for_inspection(client, workflow_id, elements),
+        }
+        report = workflow_inspector.inspect_workflow(combined, questions)
+        return WorkflowGapReport(
+            workflow_id=report.get("workflow_id") or workflow_id,
+            workflow_url=report.get("workflow_url") or _workflow_url(workflow_id),
+            trigger_form_id=report.get("trigger_form_id"),
+            trigger_form_url=report.get("trigger_form_url"),
+            ok_to_publish=bool(report.get("ok_to_publish")),
+            issues=[WorkflowGap(**issue) for issue in report.get("issues", [])],
+            available_form_fields=[
+                FormField(
+                    field_id=qid,
+                    label=q.get("text"),
+                    type=q.get("type"),
+                    required=q.get("required"),
+                    options=_field_options(q),
+                )
+                for qid, q in (questions or {}).items()
+                if isinstance(q, dict)
+            ],
+        )
 
     @mcp.tool()
     def list_forms() -> FormList:
@@ -241,6 +367,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         return FormList(forms=[
             FormSummary(
                 form_id=f.get("id"),
+                form_url=_form_url(f.get("id")),
                 title=f.get("title"),
                 status=f.get("status"),
                 submission_count=f.get("count"),
@@ -263,14 +390,15 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         try:
             questions = client.get_form_questions(form_id)
         except JotformAPIError as e:
-            return FormFieldList(form_id=form_id, error=str(e))
+            return FormFieldList(form_id=form_id, form_url=_form_url(form_id), error=str(e))
 
-        return FormFieldList(form_id=form_id, fields=[
+        return FormFieldList(form_id=form_id, form_url=_form_url(form_id), fields=[
             FormField(
                 field_id=qid,
                 label=q.get("text"),
                 type=q.get("type"),
                 required=q.get("required"),
+                options=_field_options(q),
             )
             for qid, q in (questions or {}).items()
             if isinstance(q, dict)

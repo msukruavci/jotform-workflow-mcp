@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 class WorkflowSummary(BaseModel):
     workflow_id: str | None = None
+    workflow_url: str | None = None
     title: str | None = None
     status: str | None = Field(None, description="ENABLED / DISABLED etc.")
     updated_at: str | None = None
@@ -27,7 +28,7 @@ class WorkflowSummary(BaseModel):
 
 
 class WorkflowList(BaseModel):
-    workflows: list[WorkflowSummary] = []
+    workflows: list[WorkflowSummary] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -36,6 +37,8 @@ class Step(BaseModel):
     type: str | None = None
     label: str | None = Field(None, description="Human label; defaults from type")
     trigger_form_id: str | None = None
+    trigger_form_url: str | None = None
+    sign_url: str | None = None
     known_type: bool = Field(
         True, description="False if this type has no schema on record"
     )
@@ -49,9 +52,9 @@ class Connection(BaseModel):
         None,
         description=(
             "Which branch this connection is — TRUE or FALSE on an if/else "
-            "step, or the branch name on a conditional branch. None means the "
-            "step it leaves does not branch (a split's paths are equivalent, "
-            "so they carry no label)."
+            "step, the branch name on a conditional branch, or the outcome "
+            "button text on an approval/task. None means the step it leaves "
+            "does not branch (a split's paths are equivalent, so they carry no label)."
         ),
     )
     from_port: str | None = Field(
@@ -84,19 +87,33 @@ class WorkflowHealth(BaseModel):
     unconnected_branches: list[str] = Field(
         default_factory=list,
         description=(
-            "Branches defined on a step but wired to nothing, e.g. an if/else "
-            "whose FALSE path goes nowhere — described as 'step 2 FALSE'"
+            "Outcomes defined on a branching step but wired to nothing, e.g. "
+            "an if/else whose FALSE path goes nowhere or a task outcome with "
+            "no next step — described as 'step 2 FALSE'"
+        ),
+    )
+    invalid_branch_links: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Outcome mappings whose linkID does not exist or leaves another step"
+        ),
+    )
+    unlabelled_branching_steps: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Outgoing links from branching steps that are not mapped from any outcome"
         ),
     )
 
 
 class WorkflowDetail(BaseModel):
     workflow_id: str | None = None
+    workflow_url: str | None = None
     title: str | None = None
     status: str | None = None
     publish_status: str | None = None
-    steps: list[Step] = []
-    connections: list[Connection] = []
+    steps: list[Step] = Field(default_factory=list)
+    connections: list[Connection] = Field(default_factory=list)
     health: WorkflowHealth | None = None
     diagnostics: dict = Field(
         default_factory=dict,
@@ -105,22 +122,64 @@ class WorkflowDetail(BaseModel):
     error: str | None = None
 
 
+class WorkflowRevisionSummary(BaseModel):
+    revision_id: str | None = None
+    timestamp: str | None = None
+    session_id: str | None = None
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    reason: str | None = None
+    title: str | None = None
+    step_count: int = 0
+    link_count: int = 0
+
+
+class WorkflowRevisionList(BaseModel):
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    revisions: list[WorkflowRevisionSummary] = Field(default_factory=list)
+    error: str | None = None
+
+
+class WorkflowGap(BaseModel):
+    severity: str = Field(description="error / warning / info")
+    category: str
+    step_id: str | None = None
+    step_type: str | None = None
+    field: str | None = None
+    message: str
+    suggested_question: str | None = None
+
+
+class WorkflowGapReport(BaseModel):
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    trigger_form_id: str | None = None
+    trigger_form_url: str | None = None
+    ok_to_publish: bool = False
+    issues: list[WorkflowGap] = Field(default_factory=list)
+    available_form_fields: list[FormField] = Field(default_factory=list)
+    error: str | None = None
+
+
 class StepDetail(BaseModel):
     step_id: str | None = None
     type: str | None = None
+    sign_url: str | None = None
     config: dict = Field(default_factory=dict, description="Full step configuration")
     error: str | None = None
 
 
 class FormSummary(BaseModel):
     form_id: str | None = None
+    form_url: str | None = None
     title: str | None = None
     status: str | None = None
     submission_count: str | int | None = None
 
 
 class FormList(BaseModel):
-    forms: list[FormSummary] = []
+    forms: list[FormSummary] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -129,11 +188,16 @@ class FormField(BaseModel):
     label: str | None = None
     type: str | None = None
     required: str | bool | None = None
+    options: list[str] = Field(
+        default_factory=list,
+        description="Exact allowed option texts for dropdown/radio/choice fields",
+    )
 
 
 class FormFieldList(BaseModel):
     form_id: str | None = None
-    fields: list[FormField] = []
+    form_url: str | None = None
+    fields: list[FormField] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -144,11 +208,17 @@ class StepTypeSummary(BaseModel):
     ui_name: str | None = Field(
         None, description="What this step is called in the Jotform builder UI"
     )
+    canonical_type: str | None = Field(
+        None, description="Actual API element type used when this is a UI variant"
+    )
+    subtype: str | None = Field(
+        None, description="Automatically applied subtype for a UI variant"
+    )
     schema_available: bool = True
 
 
 class StepTypeList(BaseModel):
-    step_types: list[StepTypeSummary] = []
+    step_types: list[StepTypeSummary] = Field(default_factory=list)
 
 
 class SchemaField(BaseModel):
@@ -162,9 +232,11 @@ class SchemaField(BaseModel):
 
 class StepSchema(BaseModel):
     step_type: str | None = None
+    canonical_type: str | None = None
+    subtype: str | None = None
     description: str | None = None
     ui_name: str | None = None
-    fields: list[SchemaField] = []
+    fields: list[SchemaField] = Field(default_factory=list)
     error: str | None = None
     hint: str | None = None
     available_types: list[str] = Field(default_factory=list)
@@ -174,14 +246,40 @@ class StepSchema(BaseModel):
 
 class CreateWorkflowResult(BaseModel):
     workflow_id: str | None = None
+    workflow_url: str | None = None
     title: str | None = None
     trigger_form_id: str | None = None
+    trigger_form_url: str | None = None
+    error: str | None = None
+
+
+class CreateAIFormResult(BaseModel):
+    form_id: str | None = None
+    form_url: str | None = None
+    title: str | None = None
+    summary: str | None = None
+    questions: dict = Field(default_factory=dict)
+    error: str | None = None
+
+
+class CreateWorkflowWithAIFormResult(BaseModel):
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    title: str | None = None
+    trigger_form_id: str | None = None
+    trigger_form_url: str | None = None
+    form_title: str | None = None
+    form_summary: str | None = None
+    questions: dict = Field(default_factory=dict)
     error: str | None = None
 
 
 class AddStepResult(BaseModel):
     step_id: str | None = None
     type: str | None = None
+    existing_step_id: str | None = Field(
+        None, description="Existing similar step found when duplicate creation is refused"
+    )
     linked_from: str | None = Field(
         None, description="Step this was auto-connected from, if any"
     )
@@ -222,6 +320,7 @@ class UpdateStepResult(BaseModel):
     step_id: str | None = None
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
+    hint: str | None = None
 
 
 # --- Layer 4: risky ------------------------------------------------------
@@ -242,6 +341,7 @@ class DeleteStepResult(BaseModel):
         description="Connections that will break — shown before acting"
     )
     deleted: bool = False
+    verified: bool = False
     error: str | None = None
     hint: str | None = None
 
@@ -264,5 +364,22 @@ class DeleteWorkflowResult(BaseModel):
     title: str | None = None
     needs_confirmation: bool = False
     deleted: bool = False
+    error: str | None = None
+    hint: str | None = None
+
+
+class RestoreWorkflowRevisionResult(BaseModel):
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    revision_id: str | None = None
+    revision_timestamp: str | None = None
+    session_id: str | None = None
+    reason: str | None = None
+    target_title: str | None = None
+    target_step_count: int = 0
+    target_link_count: int = 0
+    current_backup_revision_id: str | None = None
+    needs_confirmation: bool = False
+    restored: bool = False
     error: str | None = None
     hint: str | None = None

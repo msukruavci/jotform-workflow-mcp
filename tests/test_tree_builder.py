@@ -54,6 +54,25 @@ def test_position_reads_flat_x_y_when_no_position_dict():
     assert pos == {"x": 40, "y": 60 + tb.STEP_Y}
 
 
+def test_position_with_anchor_avoids_occupied_slot():
+    elements = [
+        {"element_id": "1", "position": {"x": 100, "y": 100}},
+        {"element_id": "2", "position": {"x": 100, "y": 100 + tb.STEP_Y}},
+    ]
+
+    pos = tb.compute_position(elements, after_step_id="1")
+
+    assert pos == {"x": 100 + tb.BRANCH_X, "y": 100 + tb.STEP_Y}
+
+
+def test_position_branch_offset_uses_stable_column():
+    elements = [{"element_id": "1", "position": {"x": 100, "y": 100}}]
+
+    pos = tb.compute_position(elements, after_step_id="1", branch_offset=-0.5)
+
+    assert pos == {"x": 100 - tb.BRANCH_X * 0.5, "y": 100 + tb.STEP_Y}
+
+
 # --- config validation ----------------------------------------------------
 
 def test_validate_config_keeps_known_fields():
@@ -88,6 +107,101 @@ def test_validate_config_unknown_type_raises():
         tb.validate_config("workflow_not_a_real_type", {})
 
 
+def test_verified_ui_variants_are_listed_with_canonical_type_and_subtype():
+    variants = {
+        item["step_type"]: item
+        for item in sr.list_types()
+        if item["step_type"] == "workflow_team_approval"
+    }
+
+    variant = variants["workflow_team_approval"]
+    assert variant["canonical_type"] == "workflow_approval"
+    assert variant["subtype"] == "workflow_team_approval"
+    assert variant["ui_name"] == "Team Approval"
+    assert variant["schema_available"] is True
+
+
+def test_variant_schema_uses_canonical_schema_and_fixed_subtype():
+    schema = sr.get_simplified_schema("workflow_pause_duration")
+
+    assert schema["canonical_type"] == "workflow_pause"
+    assert schema["subtype"] == "workflow_pause_duration"
+    subtype_field = next(field for field in schema["fields"] if field["name"] == "subType")
+    assert subtype_field["fixed_value"] == "workflow_pause_duration"
+
+
+def test_payment_verification_schema_is_composed_from_live_verified_shape():
+    schema = sr.get_simplified_schema("workflow_payment_verification")
+    defaults = sr.get_field_defaults("workflow_payment_verification")
+
+    assert schema["step_type"] == "workflow_payment_verification"
+    assert sr.is_known_type("workflow_payment_verification") is True
+    assert defaults["verificationMethod"] == "manual"
+    assert defaults["outcomes"][0]["type"] == "VERIFY"
+    assert defaults["outcomes"][1]["type"] == "NOT_VERIFY"
+
+
+def test_pause_duration_schema_exposes_convenience_aliases():
+    schema = sr.get_simplified_schema("workflow_pause_duration")
+    fields = {field["name"]: field for field in schema["fields"]}
+
+    assert "afterAmount" in fields
+    assert fields["afterUnit"]["allowed_values"] == ["minute", "hour", "day", "week", "month", "year"]
+    assert "afterAmount" not in {
+        field["name"] for field in sr.get_simplified_schema("workflow_pause_wait")["fields"]
+    }
+
+
+def test_conditional_branch_rejects_custom_branch_without_terms():
+    with pytest.raises(tb.ValidationError, match="conditionTerms"):
+        tb.validate_config("workflow_conditional_branch", {
+            "outcomes": [{
+                "id": 1,
+                "outcomeID": 1,
+                "type": "CONDITION",
+                "conditionValue": "CUSTOM",
+                "branchName": "Olumlu Başvuru",
+                "conditionTermsMatchType": "All",
+                "conditionTerms": [],
+            }]
+        })
+
+
+def test_conditional_branch_normalizes_valid_custom_branch():
+    clean, warnings = tb.validate_config("workflow_conditional_branch", {
+        "outcomes": [{
+            "branchName": "Olumsuz Başvuru",
+            "conditionTerms": [{
+                "field": "1_f262233901394960",
+                "operator": "startsWith",
+                "value": "2006-08-07",
+            }],
+        }]
+    })
+    outcome = clean["outcomes"][0]
+    term = outcome["conditionTerms"][0]
+    assert warnings == []
+    assert outcome["id"] == 1
+    assert outcome["outcomeID"] == 1
+    assert outcome["conditionValue"] == "CUSTOM"
+    assert outcome["conditionTermsMatchType"] == "All"
+    assert term["id"] == "term_1_1"
+    assert term["isError"] is False
+
+
+def test_conditional_branch_allows_other_branch_without_terms():
+    clean, _ = tb.validate_config("workflow_conditional_branch", {
+        "outcomes": [{
+            "id": 999,
+            "outcomeID": 999,
+            "conditionValue": "OTHER",
+            "conditionTerms": [],
+        }]
+    })
+    assert clean["outcomes"][0]["conditionValue"] == "OTHER"
+    assert clean["outcomes"][0]["conditionTerms"] == []
+
+
 # --- element payloads -----------------------------------------------------
 
 def test_build_element_create_shape():
@@ -99,6 +213,30 @@ def test_build_element_create_shape():
     assert entry["data"]["type"] == "workflow_send_email"
     assert entry["data"]["subject"] == "Hi"
     assert entry["data"]["x"] == 10 and entry["data"]["position"]["x"] == 10
+
+
+def test_build_element_create_resolves_verified_ui_variant_subtype():
+    entry = tb.build_element_create(
+        "workflow_send_pdf", 3, {"name": "PDF"}, {"x": 10, "y": 20}
+    )
+
+    assert entry["data"]["type"] == "workflow_send_email"
+    assert entry["data"]["elementType"] == "workflow_send_email"
+    assert entry["data"]["subType"] == "workflow_send_pdf"
+    assert entry["data"]["name"] == "PDF"
+
+
+def test_pause_duration_aliases_are_normalized_to_nested_execute_when():
+    clean, warnings = tb.validate_config(
+        "workflow_pause_duration",
+        {"afterAmount": 2, "afterUnit": "days"},
+    )
+
+    assert warnings == []
+    assert clean["pause"] == {
+        "activated": "Yes",
+        "executeWhen": {"afterAmount": "2", "afterUnit": "day"},
+    }
 
 
 def test_build_element_update_shape():
@@ -126,6 +264,20 @@ def test_link_type_is_never_caller_supplied():
     assert entry["data"]["type"] == tb.LINK_DEFAULTS["type"] == "default-link"
 
 
+def test_build_link_label_update_matches_builder_outcome_payload():
+    entry = tb.build_link_label_update(6, "Review")
+
+    assert entry == {
+        "action": "update",
+        "linkID": 6,
+        "data": {
+            "id": 6,
+            "link_id": 6,
+            "labels": [{"justCreated": True, "label": "Review"}],
+        },
+    }
+
+
 # --- outcome resolution -----------------------------------------------------
 
 def test_resolve_outcome_matches_case_insensitively():
@@ -148,6 +300,12 @@ def test_resolve_outcome_already_connected_refuses():
         tb.resolve_outcome(el, "TRUE")
 
 
+def test_resolve_outcome_treats_string_zero_as_unconnected():
+    el = {"outcomes": [{"outcomeID": 1, "conditionValue": "TRUE", "linkID": "0"}]}
+
+    assert tb.resolve_outcome(el, "TRUE")["outcomeID"] == 1
+
+
 def test_build_outcome_update_preserves_other_outcomes():
     el = {
         "element_id": "2",
@@ -161,6 +319,28 @@ def test_build_outcome_update_preserves_other_outcomes():
     assert outcomes[0]["linkID"] == 5
     assert outcomes[1]["linkID"] is None  # untouched, not dropped
     assert outcomes[1]["conditionValue"] == "FALSE"
+
+
+def test_build_outcome_clears_for_links_only_touches_matching_links():
+    el = {
+        "element_id": "2",
+        "outcomes": [
+            {"outcomeID": 1, "conditionValue": "TRUE", "linkID": 5},
+            {"outcomeID": 2, "conditionValue": "FALSE", "linkID": 6},
+        ],
+    }
+    entry = tb.build_outcome_clears_for_links(el, [5, 99])
+    outcomes = entry["data"]["outcomes"]
+    assert outcomes[0]["linkID"] is None
+    assert outcomes[1]["linkID"] == 6
+
+
+def test_build_outcome_clears_for_links_returns_none_without_match():
+    el = {
+        "element_id": "2",
+        "outcomes": [{"outcomeID": 1, "conditionValue": "TRUE", "linkID": 5}],
+    }
+    assert tb.build_outcome_clears_for_links(el, [99]) is None
 
 
 # --- default outcome injection ---------------------------------------------
@@ -214,6 +394,33 @@ def test_task_gets_empty_assignee_and_complete_button_by_default():
     entry = tb.build_element_create("workflow_assign_task", 2, {}, {"x": 0, "y": 0})
     assert entry["data"]["assignee"] == ""
     assert entry["data"]["outcomes"][0]["text"] == "Complete"
+
+
+def test_task_outcome_strings_are_normalized_to_builder_objects():
+    clean, warnings = tb.validate_config(
+        "workflow_assign_task",
+        {"outcomes": ["Proceed to Interview", "Reject"]},
+    )
+
+    assert warnings == []
+    assert clean["outcomes"] == [
+        {
+            "id": 1,
+            "outcomeID": 1,
+            "type": "CUSTOM",
+            "buttonColor": "#0075E3",
+            "text": "Proceed to Interview",
+            "textColor": "#FFFFFF",
+        },
+        {
+            "id": 2,
+            "outcomeID": 2,
+            "type": "CUSTOM",
+            "buttonColor": "#0075E3",
+            "text": "Reject",
+            "textColor": "#FFFFFF",
+        },
+    ]
 
 
 def test_decision_gets_empty_condition_terms_by_default():
@@ -283,6 +490,36 @@ def test_resolve_outcome_matches_approval_by_text_not_conditionvalue():
     ]}
     assert tb.resolve_outcome(el, "approve")["outcomeID"] == 1
     assert tb.resolve_outcome(el, "Deny")["outcomeID"] == 2
+
+
+def test_resolve_task_outcome_returned_as_string_by_jotform():
+    el = {"outcomes": ["Proceed to Interview", "Reject"]}
+
+    match = tb.resolve_outcome(el, "Proceed to Interview")
+
+    assert match["outcomeID"] == 1
+    assert match["text"] == "Proceed to Interview"
+
+
+def test_build_outcome_update_converts_task_string_outcome_to_object():
+    el = {
+        "element_id": "3",
+        "type": "workflow_assign_task",
+        "outcomes": ["Proceed to Interview", "Reject"],
+    }
+
+    entry = tb.build_outcome_update(el, outcome_id=1, link_id=7)
+
+    assert entry["data"]["outcomes"][0] == {
+        "id": 1,
+        "outcomeID": 1,
+        "type": "CUSTOM",
+        "buttonColor": "#0075E3",
+        "text": "Proceed to Interview",
+        "textColor": "#FFFFFF",
+        "linkID": 7,
+    }
+    assert entry["data"]["outcomes"][1] == "Reject"
 
 
 def test_resolve_outcome_falls_back_to_type_if_no_text():

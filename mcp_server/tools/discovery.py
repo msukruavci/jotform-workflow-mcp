@@ -30,9 +30,10 @@ def register(mcp: MCPServer) -> None:
         """
         List the workflow step types you can add to a workflow.
 
-        Each entry gives the API step_type, the name the Jotform builder shows
-        for it (ui_name), and a one-line description. When a user names a step
-        the way the UI does — "approval", "sign document" — match on ui_name.
+        Each entry gives an add_step step_type, the name the Jotform builder
+        shows for it (ui_name), and a one-line description. Some UI entries
+        are variants with a canonical_type and subtype; pass the listed
+        step_type directly to add_step.
 
         schema_available=false means this server has no field schema for that
         type: it can appear in an existing workflow, but get_step_schema will
@@ -81,6 +82,8 @@ def register(mcp: MCPServer) -> None:
             )
         return StepSchema(
             step_type=result["step_type"],
+            canonical_type=result.get("canonical_type"),
+            subtype=result.get("subtype"),
             description=result["description"],
             ui_name=result["ui_name"],
             fields=[SchemaField(**f) for f in result["fields"]],

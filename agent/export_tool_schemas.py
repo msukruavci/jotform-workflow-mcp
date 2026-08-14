@@ -11,18 +11,21 @@ no longer honours.
 Re-run this whenever a tool's signature or docstring changes.
 
 Usage:
-    python -m probes.export_tool_schemas                # human-readable summary
-    python -m probes.export_tool_schemas --json         # full JSON to stdout
-    python -m probes.export_tool_schemas --out tools.json
+    python agent/export_tool_schemas.py                # human-readable summary
+    python agent/export_tool_schemas.py --json         # full JSON to stdout
+    python agent/export_tool_schemas.py --out tools.json
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 load_dotenv()
 
 from mcp_server.server import mcp  # noqa: E402

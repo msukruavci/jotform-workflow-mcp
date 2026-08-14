@@ -44,7 +44,7 @@
   },
   {
     "name": "get_workflow",
-    "description": "Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, or the branch name on a conditional\n        branch. That is how you tell two paths apart. A split's paths are\n        equivalent and carry no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only — use get_step_details for one step's full\n        configuration.",
+    "description": "Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, the branch name on a conditional\n        branch, or the button/outcome text on an approval/task. That is how\n        you tell two paths apart. A split's paths are equivalent and carry\n        no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only — use get_step_details for one step's full\n        configuration.",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -85,6 +85,48 @@
     }
   },
   {
+    "name": "list_workflow_revisions",
+    "description": "List saved workflow revisions for this MCP server session/history.\n\n        Revisions are full snapshots captured automatically before mutating\n        tools write to Jotform. Use restore_workflow_revision to preview and\n        restore one of them.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "description": "Maximum revisions to return, newest first. Default 10.",
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "workflow_id"
+      ],
+      "title": "list_workflow_revisionsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "inspect_workflow_gaps",
+    "description": "Check for incomplete workflow setup before continuing or publishing.\n\n        This catches empty links, unwired branch outcomes, missing assignees,\n        missing email/task content, and condition fields that are not real\n        fields on the trigger form. Call this before presenting a workflow as\n        ready, and when the user asks what still needs to be completed.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id"
+      ],
+      "title": "inspect_workflow_gapsArguments",
+      "type": "object"
+    }
+  },
+  {
     "name": "list_forms",
     "description": "List the user's forms, with each form's id, title, status and\n        submission count.\n\n        A workflow is triggered by one of these, so this is usually the first\n        call when working out which form a workflow is about.",
     "input_schema": {
@@ -112,8 +154,50 @@
     }
   },
   {
+    "name": "create_form_with_ai",
+    "description": "Create a new Jotform form from an AI prompt.\n\n        Use this only after the user chooses \"create a new form\" for a\n        workflow trigger and describes what the form should collect.",
+    "input_schema": {
+      "properties": {
+        "prompt": {
+          "description": "Natural-language description of the form to create. Ask the user what fields, labels, language, and purpose they want before calling this. The created form can be passed to create_workflow as trigger_form_id.",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "form_type": {
+          "default": "classic",
+          "description": "Form type preference for Jotform AI. Default \"classic\".",
+          "title": "Form Type",
+          "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "description": "Form language preference. Default \"en\"; use \"tr\" when the user wants Turkish.",
+          "title": "Language",
+          "type": "string"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "title": "create_form_with_aiArguments",
+      "type": "object"
+    }
+  },
+  {
     "name": "create_workflow",
-    "description": "Create a new, empty workflow with a start point.\n\n        Returns the new workflow_id. Use add_step to start adding steps.",
+    "description": "Create a new workflow with a trigger form.\n\n        Before using this tool in a new-workflow conversation, first ask the\n        user how the workflow should be triggered:\n\n        1. Use an existing form — then call list_forms and pass the chosen\n           form id as trigger_form_id.\n        2. Create a new form first — use create_workflow_with_ai_form instead.\n        3. No trigger form yet — only proceed with allow_without_trigger=true\n           if the user explicitly asks for a draft workflow without one.\n\n        Returns the new workflow_id. Use add_step to start adding steps.",
     "input_schema": {
       "properties": {
         "title": {
@@ -123,8 +207,26 @@
         },
         "trigger_form_id": {
           "default": "",
-          "description": "Optional — the form (from list_forms) whose submissions should trigger this workflow. Confirmed 2026-08-10: binding a trigger form is NOT possible through the public API — the call reports success but changes nothing. If you pass this and it can't be bound, the workflow is still created and the result explains the user must set it manually in the Jotform builder (Settings -> trigger form, or drag a form onto the start point).",
+          "description": "Required unless allow_without_trigger=true — the form (from list_forms) whose submissions should trigger this workflow. Before calling create_workflow, decide the form strategy with the user: existing form or new AI-created form. For an existing form, call list_forms first and use the selected id here. For a new form, use create_workflow_with_ai_form instead of this tool. Binding takes two API calls under the hood and is verified by reading the start point back.",
           "title": "Trigger Form Id",
+          "type": "string"
+        },
+        "allow_without_trigger": {
+          "default": false,
+          "description": "Default false. Set true only if the user explicitly asks for a draft workflow with no trigger form. Normal workflows must have a trigger form.",
+          "title": "Allow Without Trigger",
+          "type": "boolean"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
           "type": "string"
         }
       },
@@ -136,8 +238,56 @@
     }
   },
   {
+    "name": "create_workflow_with_ai_form",
+    "description": "Create a new AI-generated form, then create a workflow triggered by it.\n\n        Use this when the user wants a new form rather than an existing form.\n        Ask what the form should collect before calling this tool.",
+    "input_schema": {
+      "properties": {
+        "title": {
+          "description": "Workflow name.",
+          "title": "Title",
+          "type": "string"
+        },
+        "form_prompt": {
+          "description": "Natural-language description of the new trigger form to create before creating the workflow. Include the form's purpose and desired fields. Default language is English; mention Turkish only if the user asks for it.",
+          "title": "Form Prompt",
+          "type": "string"
+        },
+        "form_type": {
+          "default": "classic",
+          "description": "Form type preference for Jotform AI. Default \"classic\".",
+          "title": "Form Type",
+          "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "description": "Form language preference. Default \"en\"; use \"tr\" when the user wants Turkish.",
+          "title": "Language",
+          "type": "string"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "form_prompt"
+      ],
+      "title": "create_workflow_with_ai_formArguments",
+      "type": "object"
+    }
+  },
+  {
     "name": "add_step",
-    "description": "Add a step to a workflow.\n\n        Returns the new step_id. Position on the canvas is chosen\n        automatically.",
+    "description": "Add a step to a workflow.\n\n        If the step needs meaningful content or outcomes, ask for the minimum\n        missing details first. Keep the question concise: one compact question\n        covering assignee/message/outcomes is better than a long checklist.\n\n        Returns the new step_id. Position on the canvas is chosen\n        automatically.",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -152,7 +302,7 @@
         },
         "config": {
           "additionalProperties": true,
-          "description": "Fields for this step type — call get_step_schema first to see what it accepts. Unknown fields are dropped, not rejected; check `warnings` in the result.",
+          "description": "Fields for this step type — call get_step_schema first to see what it accepts. Unknown fields are dropped, not rejected; check `warnings` in the result. Before adding steps whose behavior depends on user intent — tasks, emails, approvals, conditions, conditional branches, or any step with outcomes/description/message fields — ask one short question for the missing essentials instead of creating an empty placeholder. Examples: for a task ask who it is assigned to and what should be done; for a branch ask the branch names and conditions; for an approval ask the approver and outcomes. The server refuses empty task/approval/assign/email/sign/condition steps.",
           "title": "Config",
           "type": "object"
         },
@@ -160,6 +310,24 @@
           "default": "",
           "description": "Optional — if given, connects this step directly after that one. Only works when after_step_id doesn't already have an outgoing connection (a step with more than one exit needs deliberate wiring — use connect_steps for that, with an outcome if the source branches).",
           "title": "After Step Id",
+          "type": "string"
+        },
+        "allow_duplicate": {
+          "default": false,
+          "description": "Default false. Set true only after the user explicitly wants another similar step instead of reusing/updating/connecting the existing one.",
+          "title": "Allow Duplicate",
+          "type": "boolean"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
           "type": "string"
         }
       },
@@ -194,8 +362,20 @@
         },
         "outcome": {
           "default": "",
-          "description": "Required if from_step_id is an if/else or conditional branch step — e.g. \"TRUE\", \"FALSE\", or a custom branch name. Check get_workflow's connections or get_step_details on from_step_id to see what outcomes exist and which are already used. Leave empty for non-branching steps.",
+          "description": "Required if from_step_id is a branching step: if/else, conditional branch, approval, or task with outcomes. Examples: \"TRUE\", \"FALSE\", \"Approve\", \"Reject\", or a custom task/branch outcome name. Check get_workflow or get_step_details on from_step_id to see what outcomes exist and which are already used. Leave empty only for steps without outcomes.",
           "title": "Outcome",
+          "type": "string"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
           "type": "string"
         }
       },
@@ -205,6 +385,42 @@
         "to_step_id"
       ],
       "title": "connect_stepsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "disconnect_steps",
+    "description": "Remove a single connection between two steps, without deleting\n        either step.\n\n        If the connection leaves a branching step (if/else, conditional\n        branch, approval, or task with outcomes), that outcome's link is cleared first — so it\n        shows up as unconnected again and can be wired to something else\n        with connect_steps. Without this, the outcome would still point at\n        a link_id that no longer exists: resolve_outcome would wrongly\n        report it as already connected, and get_workflow's health check\n        would separately start flagging it as a dangling link.\n\n        Use this instead of add_step + connect_steps when the goal is\n        rewiring an existing structure — for example, replacing\n        On Submission -> Review -> Approval with a direct\n        On Submission -> Approval by removing the old link first.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "link_id": {
+          "description": "From get_workflow's connections list.",
+          "title": "Link Id",
+          "type": "string"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "link_id"
+      ],
+      "title": "disconnect_stepsArguments",
       "type": "object"
     }
   },
@@ -228,6 +444,18 @@
           "description": "Only the fields to change — call get_step_details first to see current values, get_step_schema for valid fields.",
           "title": "Config",
           "type": "object"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
         }
       },
       "required": [
@@ -259,6 +487,18 @@
           "description": "Leave false to preview what deleting this step would affect. Only pass true after showing that preview to the user and getting their explicit go-ahead — never set this based on your own judgement that it's probably fine.",
           "title": "Confirm",
           "type": "boolean"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
         }
       },
       "required": [
@@ -284,12 +524,66 @@
           "description": "Leave false to check the workflow's structure and see what publishing would do. Only pass true after showing that to the user and getting their explicit go-ahead.",
           "title": "Confirm",
           "type": "boolean"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
         }
       },
       "required": [
         "workflow_id"
       ],
       "title": "publish_workflowArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "restore_workflow_revision",
+    "description": "Restore a workflow to a saved revision.\n\n        Revisions are captured automatically before add/update/connect/\n        disconnect/delete/publish operations. Without revision_id, this uses\n        the newest saved revision, so it is the \"go back one change\" tool.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "revision_id": {
+          "default": "",
+          "description": "Optional. If empty, restores the newest saved revision for this workflow, usually the state immediately before the last mutating tool call.",
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "confirm": {
+          "default": false,
+          "description": "Leave false to preview the restore target. Only pass true after showing that preview to the user and getting explicit approval. The current workflow is backed up as a new revision before restore.",
+          "title": "Confirm",
+          "type": "boolean"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id"
+      ],
+      "title": "restore_workflow_revisionArguments",
       "type": "object"
     }
   },
@@ -313,6 +607,18 @@
           "default": "",
           "description": "Required alongside confirm=true — must exactly match the workflow's current title (returned in the preview). This exists because workflow titles are often similar or duplicated; matching by id alone made it easy to delete the wrong one by picking the wrong list index. Read the title back to the user and use what they confirm, don't retype it from memory.",
           "title": "Confirm Title",
+          "type": "string"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
           "type": "string"
         }
       },

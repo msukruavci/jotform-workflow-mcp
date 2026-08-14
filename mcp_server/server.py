@@ -6,21 +6,20 @@ Run locally (stdio):   python -m mcp_server.server
 Tool layers:
   1. discovery — list_step_types, get_step_schema
   2. reading   — list_workflows, get_workflow, get_step_details,
-                 list_forms, get_form_fields
+                 inspect_workflow_gaps, list_forms, get_form_fields
   3. building  — create_workflow, add_step, connect_steps,
                  disconnect_steps, update_step
-  4. risky     — delete_step, publish_workflow, delete_workflow
-                 (confirm=True required to act on any of the three)
+  4. risky     — delete_step, publish_workflow, restore_workflow_revision,
+                 delete_workflow (confirm=True required to act)
 """
 from dotenv import load_dotenv
-from mcp.server import MCPServer
-
 load_dotenv()
 
+from mcp_server.audit_log import AuditedMCPServer  # noqa: E402
 from mcp_server.jotform_client import JotformClient  # noqa: E402
 from mcp_server.tools import building, discovery, reading, risky  # noqa: E402
 
-mcp = MCPServer("jotform-workflow")
+mcp = AuditedMCPServer("jotform-workflow")
 client = JotformClient()
 
 discovery.register(mcp)
