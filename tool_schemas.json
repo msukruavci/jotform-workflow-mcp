@@ -1,7 +1,34 @@
 [
   {
+    "name": "show_workflows",
+    "description": "Show the user's workflows in the interactive workflow list UI.\n\n        Use this presentation tool when the user asks to see, browse, list,\n        or choose from their workflows. It reads Jotform directly; never build\n        its payload from assistant prose or remembered tool results.",
+    "input_schema": {
+      "properties": {},
+      "title": "show_workflowsArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "show_workflow",
+    "description": "Show one workflow in the interactive read-only workflow preview UI.\n\n        Use when the user asks to open, show, preview, or inspect a workflow.\n        Also call this exactly once after all requested workflow creation or\n        update operations have finished and their final state was read back.\n        Do not call it for intermediate write steps.",
+    "input_schema": {
+      "properties": {
+        "workflow_id": {
+          "description": "Workflow id from list_workflows, create_workflow, or a write result.",
+          "title": "Workflow Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id"
+      ],
+      "title": "show_workflowArguments",
+      "type": "object"
+    }
+  },
+  {
     "name": "list_step_types",
-    "description": "List the workflow step types you can add to a workflow.\n\n        Each entry gives the API step_type, the name the Jotform builder shows\n        for it (ui_name), and a one-line description. When a user names a step\n        the way the UI does — \"approval\", \"sign document\" — match on ui_name.\n\n        schema_available=false means this server has no field schema for that\n        type: it can appear in an existing workflow, but get_step_schema will\n        not describe it. Call get_step_schema on a type before configuring it.",
+    "description": "List the workflow step types you can add to a workflow.\n\n        Each entry gives an add_step step_type, the name the Jotform builder\n        shows for it (ui_name), and a one-line description. Some UI entries\n        are variants with a canonical_type and subtype; pass the listed\n        step_type directly to add_step.\n\n        schema_available=false means this server has no field schema for that\n        type: it can appear in an existing workflow, but get_step_schema will\n        not describe it. Call get_step_schema on a type before configuring it.",
     "input_schema": {
       "properties": {
         "category": {

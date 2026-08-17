@@ -1,9 +1,11 @@
 """
 Layer 2: reading.
 
-Everything here is read-only and safe to call freely. The shapes returned
-are trimmed — Jotform's raw responses carry UI bookkeeping (uuids, canvas
-coordinates) that would add noise to a conversation.
+Everything here is read-only and safe to call freely. Normal MCP reading
+tools return trimmed shapes because Jotform's raw UI bookkeeping would add
+noise to a conversation. The dedicated workflow-preview reader is the one
+exception: it intentionally preserves the native canvas properties required
+by Jotform's own read-only renderer.
 
 Two corrections worth recording (2026-08-07):
 
@@ -21,6 +23,7 @@ Two corrections worth recording (2026-08-07):
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Annotated
 
 from mcp.server import MCPServer
@@ -34,6 +37,7 @@ from mcp_server.models import (
     Connection, FormField, FormFieldList, FormList, FormSummary, Step,
     StepDetail, WorkflowDetail, WorkflowHealth, WorkflowList, WorkflowSummary,
     WorkflowGap, WorkflowGapReport, WorkflowRevisionList, WorkflowRevisionSummary,
+    WorkflowPreviewData,
 )
 
 
@@ -118,6 +122,232 @@ def _outcome_map(elements: list[dict]) -> tuple[dict[str, str], list[str]]:
     return mapping, unconnected
 
 
+def read_workflow_list(client: JotformClient) -> WorkflowList:
+    """Return the authoritative workflow list used by tools and the MCP UI."""
+    try:
+        workflows = client.list_workflows()
+    except JotformAPIError as e:
+        return WorkflowList(error=str(e))
+
+    return WorkflowList(workflows=[
+        WorkflowSummary(
+            workflow_id=w.get("id"),
+            workflow_url=_workflow_url(w.get("id")),
+            title=w.get("title"),
+            status=w.get("status"),
+            updated_at=w.get("updated_at"),
+            run_count=(w.get("instance_summary") or {}).get("total"),
+        )
+        for w in workflows
+    ])
+
+
+def _workflow_detail_from_combined(workflow_id: str, combined: dict) -> WorkflowDetail:
+    """Build the compact tool view from an already-read Workflow snapshot."""
+    wf = combined.get("workflow", {}) or {}
+    elements = [el for el in (combined.get("elements") or []) if isinstance(el, dict)]
+    links = [ln for ln in (combined.get("links") or []) if isinstance(ln, dict)]
+    outcome_by_link, unconnected_branches = _outcome_map(elements)
+
+    steps: list[Step] = []
+    unknown_types: list[str] = []
+    for el in elements:
+        step_type = el.get("type")
+        known = bool(step_type) and schema_registry.is_known_type(step_type)
+        if step_type and not known and step_type not in unknown_types:
+            unknown_types.append(step_type)
+        steps.append(Step(
+            step_id=str(el.get("element_id")) if el.get("element_id") is not None else None,
+            type=step_type,
+            label=el.get("name") or schema_registry.default_label(step_type),
+            trigger_form_id=el.get("resourceID"),
+            trigger_form_url=_form_url(el.get("resourceID")),
+            sign_url=_sign_url_from_config(el) if step_type == "workflow_sign_document" else None,
+            known_type=known,
+        ))
+
+    connections = []
+    for ln in links:
+        link_id = str(ln.get("link_id")) if ln.get("link_id") is not None else None
+        connections.append(Connection(
+            link_id=link_id,
+            from_step=str(ln.get("fromElement")) if ln.get("fromElement") is not None else None,
+            to_step=str(ln.get("toElement")) if ln.get("toElement") is not None else None,
+            outcome=outcome_by_link.get(link_id or ""),
+            from_port=ln.get("fromPortName"),
+        ))
+
+    health_raw = graph.analyse(
+        [s.model_dump() for s in steps],
+        [c.model_dump() for c in connections],
+    )
+    diagnostics: dict = workflow_inspector.branch_diagnostics(elements, links)
+    if diagnostics["unlabelled_branching_steps"] or diagnostics["invalid_branch_links"]:
+        diagnostics["note"] = (
+            "Branch links must be represented both in links[] and in the "
+            "source element's outcomes[].linkID. These entries do not match."
+        )
+
+    resolved_workflow_id = str(wf.get("id")) if wf.get("id") is not None else workflow_id
+    return WorkflowDetail(
+        workflow_id=resolved_workflow_id,
+        workflow_url=_workflow_url(resolved_workflow_id),
+        title=wf.get("title"),
+        status=wf.get("status"),
+        publish_status=wf.get("publishStatus"),
+        steps=steps,
+        connections=connections,
+        health=WorkflowHealth(
+            **health_raw,
+            unknown_types=unknown_types,
+            unconnected_branches=unconnected_branches,
+            invalid_branch_links=diagnostics["invalid_branch_links"],
+            unlabelled_branching_steps=diagnostics["unlabelled_branching_steps"],
+        ),
+        diagnostics=diagnostics,
+    )
+
+
+def read_workflow_detail(client: JotformClient, workflow_id: str) -> WorkflowDetail:
+    """Read and analyse one workflow without trusting model-provided state."""
+    try:
+        combined = client.get_workflow_combined(workflow_id)
+    except JotformAPIError as e:
+        return WorkflowDetail(
+            workflow_id=workflow_id,
+            workflow_url=_workflow_url(workflow_id),
+            error=str(e),
+        )
+
+    return _workflow_detail_from_combined(workflow_id, combined)
+
+
+def _form_resource_ids(elements: list[dict]) -> set[str]:
+    """Find form ids referenced by nodes without treating other resources as forms."""
+    form_ids: set[str] = set()
+    for element in elements:
+        resource_type = str(element.get("resourceType") or "").upper()
+        element_type = element.get("type")
+        candidate = element.get("formID") or element.get("resourceID")
+        if candidate and (
+            resource_type == "FORM"
+            or element_type in {"workflow_start_point", "workflow_assign_form"}
+            or element.get("formID")
+        ):
+            form_ids.add(str(candidate))
+    return form_ids
+
+
+def _enrich_form_resources(
+    client: JotformClient,
+    elements: list[dict],
+) -> tuple[list[dict], list[str]]:
+    """Attach the same form metadata used by Workflow's standalone preview."""
+    resources: dict[str, dict] = {}
+    warnings: list[str] = []
+
+    for form_id in sorted(_form_resource_ids(elements)):
+        form: dict = {}
+        questions: dict = {}
+        try:
+            raw_form = client.get_form(form_id)
+            form = raw_form if isinstance(raw_form, dict) else {}
+        except JotformAPIError as error:
+            warnings.append(f"Could not load form {form_id} metadata: {error}")
+        try:
+            raw_questions = client.get_form_questions(form_id)
+            questions = raw_questions if isinstance(raw_questions, dict) else {}
+        except JotformAPIError as error:
+            warnings.append(f"Could not load form {form_id} fields: {error}")
+
+        resources[form_id] = {
+            **form,
+            "id": str(form.get("id") or form_id),
+            "questions": questions,
+        }
+
+    enriched: list[dict] = []
+    for raw_element in elements:
+        element = deepcopy(raw_element)
+        candidate = element.get("formID") or element.get("resourceID")
+        form_id = str(candidate) if candidate is not None else None
+        if form_id in resources:
+            element["resourceObject"] = resources[form_id]
+        enriched.append(element)
+    return enriched, warnings
+
+
+def read_workflow_preview(client: JotformClient, workflow_id: str) -> WorkflowPreviewData:
+    """Read the complete, UI-only snapshot consumed by Workflow's native canvas."""
+    try:
+        combined = client.get_workflow_combined(workflow_id, fetch_essential=False)
+    except JotformAPIError as error:
+        return WorkflowPreviewData(
+            workflow_id=workflow_id,
+            workflow_url=_workflow_url(workflow_id),
+            error=str(error),
+        )
+
+    detail = _workflow_detail_from_combined(workflow_id, combined)
+    raw_elements = [
+        element for element in (combined.get("elements") or [])
+        if isinstance(element, dict)
+    ]
+    raw_links = [
+        deepcopy(link) for link in (combined.get("links") or [])
+        if isinstance(link, dict)
+    ]
+    elements, warnings = _enrich_form_resources(client, raw_elements)
+    outcome_by_link, _ = _outcome_map(elements)
+
+    # Native Workflow normally resolves edge labels from outcomes[].linkID.
+    # Keeping the verified label on the link as well gives the read-only UI a
+    # safe fallback for older or uncommon node renderers.
+    for link in raw_links:
+        link_id = str(link.get("link_id")) if link.get("link_id") is not None else ""
+        if not link.get("labels") and outcome_by_link.get(link_id):
+            link["labels"] = [{"label": outcome_by_link[link_id]}]
+
+    known_element_ids = [
+        str(element["element_id"])
+        for element in elements
+        if element.get("element_id") is not None
+        and schema_registry.is_known_type(element.get("type"))
+    ]
+
+    return WorkflowPreviewData(
+        workflow_id=detail.workflow_id,
+        workflow_url=detail.workflow_url,
+        title=detail.title,
+        status=detail.status,
+        publish_status=detail.publish_status,
+        elements=elements,
+        links=raw_links,
+        known_element_ids=known_element_ids,
+        health=detail.health,
+        diagnostics=detail.diagnostics,
+        warnings=warnings,
+    )
+
+
+def read_step_detail(client: JotformClient, workflow_id: str, step_id: str) -> StepDetail:
+    """Read one step's complete persisted configuration."""
+    try:
+        config = client.get_element(workflow_id, step_id)
+    except JotformAPIError as e:
+        return StepDetail(step_id=step_id, error=str(e))
+
+    if not isinstance(config, dict):
+        return StepDetail(step_id=step_id, error=f"Unexpected response: {type(config).__name__}")
+
+    return StepDetail(
+        step_id=step_id,
+        type=config.get("type"),
+        sign_url=_sign_url_from_config(config) if config.get("type") == "workflow_sign_document" else None,
+        config=config,
+    )
+
+
 def register(mcp: MCPServer, client: JotformClient) -> None:
     @mcp.tool()
     def list_workflows() -> WorkflowList:
@@ -130,22 +360,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         Use the id with get_workflow to see the steps.
         """
-        try:
-            workflows = client.list_workflows()
-        except JotformAPIError as e:
-            return WorkflowList(error=str(e))
-
-        return WorkflowList(workflows=[
-            WorkflowSummary(
-                workflow_id=w.get("id"),
-                workflow_url=_workflow_url(w.get("id")),
-                title=w.get("title"),
-                status=w.get("status"),
-                updated_at=w.get("updated_at"),
-                run_count=(w.get("instance_summary") or {}).get("total"),
-            )
-            for w in workflows
-        ])
+        return read_workflow_list(client)
 
     @mcp.tool()
     def get_workflow(
@@ -169,77 +384,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         Steps are summaries only — use get_step_details for one step's full
         configuration.
         """
-        try:
-            combined = client.get_workflow_combined(workflow_id)
-        except JotformAPIError as e:
-            return WorkflowDetail(workflow_id=workflow_id, workflow_url=_workflow_url(workflow_id), error=str(e))
-
-        wf = combined.get("workflow", {}) or {}
-        elements = [el for el in (combined.get("elements") or []) if isinstance(el, dict)]
-        links = [ln for ln in (combined.get("links") or []) if isinstance(ln, dict)]
-
-        outcome_by_link, unconnected_branches = _outcome_map(elements)
-
-        steps: list[Step] = []
-        unknown_types: list[str] = []
-        for el in elements:
-            step_type = el.get("type")
-            known = bool(step_type) and schema_registry.is_known_type(step_type)
-            if step_type and not known and step_type not in unknown_types:
-                unknown_types.append(step_type)
-            steps.append(Step(
-                step_id=str(el.get("element_id")) if el.get("element_id") is not None else None,
-                type=step_type,
-                label=el.get("name") or schema_registry.default_label(step_type),
-                trigger_form_id=el.get("resourceID"),
-                trigger_form_url=_form_url(el.get("resourceID")),
-                sign_url=_sign_url_from_config(el) if step_type == "workflow_sign_document" else None,
-                known_type=known,
-            ))
-
-        connections = []
-        for ln in links:
-            link_id = str(ln.get("link_id")) if ln.get("link_id") is not None else None
-            connections.append(Connection(
-                link_id=link_id,
-                from_step=str(ln.get("fromElement")) if ln.get("fromElement") is not None else None,
-                to_step=str(ln.get("toElement")) if ln.get("toElement") is not None else None,
-                outcome=outcome_by_link.get(link_id or ""),
-                from_port=ln.get("fromPortName"),
-            ))
-
-        health_raw = graph.analyse(
-            [s.model_dump() for s in steps],
-            [c.model_dump() for c in connections],
-        )
-
-        diagnostics: dict = workflow_inspector.branch_diagnostics(elements, links)
-        if (
-            diagnostics["unlabelled_branching_steps"]
-            or diagnostics["invalid_branch_links"]
-        ):
-            diagnostics["note"] = (
-                "Branch links must be represented both in links[] and in the "
-                "source element's outcomes[].linkID. These entries do not match."
-            )
-
-        return WorkflowDetail(
-            workflow_id=str(wf.get("id")) if wf.get("id") is not None else workflow_id,
-            workflow_url=_workflow_url(str(wf.get("id")) if wf.get("id") is not None else workflow_id),
-            title=wf.get("title"),
-            status=wf.get("status"),
-            publish_status=wf.get("publishStatus"),
-            steps=steps,
-            connections=connections,
-            health=WorkflowHealth(
-                **health_raw,
-                unknown_types=unknown_types,
-                unconnected_branches=unconnected_branches,
-                invalid_branch_links=diagnostics["invalid_branch_links"],
-                unlabelled_branching_steps=diagnostics["unlabelled_branching_steps"],
-            ),
-            diagnostics=diagnostics,
-        )
+        return read_workflow_detail(client, workflow_id)
 
     @mcp.tool()
     def get_step_details(
@@ -253,20 +398,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         get_workflow only summarizes steps; use this when you need to know
         exactly how one step is set up, for example before changing it.
         """
-        try:
-            config = client.get_element(workflow_id, step_id)
-        except JotformAPIError as e:
-            return StepDetail(step_id=step_id, error=str(e))
-
-        if not isinstance(config, dict):
-            return StepDetail(step_id=step_id, error=f"Unexpected response: {type(config).__name__}")
-
-        return StepDetail(
-            step_id=step_id,
-            type=config.get("type"),
-            sign_url=_sign_url_from_config(config) if config.get("type") == "workflow_sign_document" else None,
-            config=config,
-        )
+        return read_step_detail(client, workflow_id, step_id)
 
     @mcp.tool()
     def list_workflow_revisions(

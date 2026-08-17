@@ -53,6 +53,17 @@ authoritative: report `unreachable_steps`, `dead_end_steps`,
 `unconnected_branches`, and `dangling_links` from it rather than reasoning
 about the structure from memory.
 
+**Use the workflow UI only for presentation.** When the user asks to see,
+browse, list, or choose workflows, call `show_workflows`. When they ask to
+open, show, preview, or inspect one workflow, call `show_workflow`. After a
+create or update request, finish every requested write, perform the final
+`get_workflow` read-back and the required gap inspection, then call
+`show_workflow` exactly once with the workflow id. Never open the UI after
+each intermediate step: that would show a half-built graph and repeatedly
+remount the iframe. If a workflow was deleted, call `show_workflows` instead.
+The presentation tools read Jotform again, so never construct UI state from
+your prose or from remembered intended changes.
+
 **Inspect gaps before saying a workflow is ready.** Call
 `inspect_workflow_gaps` before publishing, before telling the user a workflow
 is complete, and whenever a workflow looks underspecified. It reports empty
