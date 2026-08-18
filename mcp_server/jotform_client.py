@@ -156,6 +156,10 @@ class JotformClient:
             "GET", f"/form/{form_id}/questions", params={"parseJSON": 1}
         ).get("content", {})
 
+    def get_form(self, form_id: str) -> dict:
+        """Return one form's metadata without depending on list pagination."""
+        return self._request("GET", f"/form/{form_id}").get("content", {})
+
     def create_form_with_ai(
         self,
         prompt: str,
@@ -199,14 +203,24 @@ class JotformClient:
             },
         ).get("content", [])
 
-    def get_workflow_combined(self, workflow_id: str) -> dict:
+    def get_workflow_combined(
+        self,
+        workflow_id: str,
+        *,
+        fetch_essential: bool = True,
+    ) -> dict:
         """
         Metadata + elements + links in one call. Confirmed working
         2026-08-07 — preferred over three separate calls.
+
+        Tool reads use the compact essential shape by default. The MCP UI asks
+        for the complete persisted element properties so Jotform's own native
+        preview can render form names, conditions, outcomes and node details.
         """
+        params = {"fetchEssentialElementProps": 1} if fetch_essential else {}
         content = self._request(
             "GET", f"/workflow/{workflow_id}/combined",
-            params={"fetchEssentialElementProps": 1},
+            params=params,
         ).get("content", {})
         return _normalise_combined_content(content) if isinstance(content, dict) else content
 

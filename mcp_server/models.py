@@ -13,6 +13,8 @@ field it can read and explain to the user does.
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -120,6 +122,48 @@ class WorkflowDetail(BaseModel):
         description="Internal notes — e.g. link fields we could not interpret",
     )
     error: str | None = None
+
+
+class WorkflowListUIResult(BaseModel):
+    """Versioned payload consumed by the workflow MCP UI list view."""
+
+    view: Literal["workflow-list"] = "workflow-list"
+    schema_version: Literal[1] = Field(1, alias="schemaVersion")
+    data: WorkflowList
+
+
+class WorkflowPreviewData(BaseModel):
+    """Authoritative, native-canvas payload used only by the MCP UI."""
+
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    title: str | None = None
+    status: str | None = None
+    publish_status: str | None = None
+    elements: list[dict] = Field(
+        default_factory=list,
+        description="Persisted Workflow element properties for the native read-only canvas",
+    )
+    links: list[dict] = Field(
+        default_factory=list,
+        description="Persisted Workflow links for the native read-only canvas",
+    )
+    known_element_ids: list[str] = Field(
+        default_factory=list,
+        description="Element ids whose types are supported by this server and renderer",
+    )
+    health: WorkflowHealth | None = None
+    diagnostics: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class WorkflowPreviewUIResult(BaseModel):
+    """Versioned payload consumed by the workflow MCP UI preview."""
+
+    view: Literal["workflow-preview"] = "workflow-preview"
+    schema_version: Literal[2] = Field(2, alias="schemaVersion")
+    data: WorkflowPreviewData
 
 
 class WorkflowRevisionSummary(BaseModel):
