@@ -22,20 +22,20 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "1) api.py başlatılıyor (arka planda, port $PORT)..."
-python api.py &
+echo "1) HTTP server başlatılıyor (arka planda, port $PORT)..."
+./.venv/bin/python server_http.py &
 API_PID=$!
 sleep 2
 
 if ! kill -0 "$API_PID" 2>/dev/null; then
-  echo "[HATA] api.py hemen çöktü — port $PORT dolu olabilir ya da başka bir hata var."
-  echo "       'python api.py' komutunu ön planda çalıştırıp gerçek hatayı gör."
+  echo "[HATA] HTTP sunucusu hemen çöktü — port $PORT dolu olabilir ya da başka bir hata var."
+  echo "       './.venv/bin/python server_http.py' komutunu ön planda çalıştırıp gerçek hatayı gör."
   exit 1
 fi
-echo "   -> api.py ayakta (PID=$API_PID), http://127.0.0.1:$PORT/sse"
+echo "   -> HTTP sunucusu ayakta (PID=$API_PID), http://127.0.0.1:$PORT/mcp"
 echo
 
-echo "2) Tünel açılıyor — aşağıda çıkan URL'in sonuna /sse ekleyip"
+echo "2) Tünel açılıyor — aşağıda çıkan URL'in sonuna /mcp ekleyip"
 echo "   ChatGPT connector'ının Server URL alanına onu yapıştır."
 echo
 
