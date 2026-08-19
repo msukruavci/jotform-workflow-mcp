@@ -1469,6 +1469,45 @@ prone to):
 ./run_server.sh
 ```
 
+### Workflow UI in ChatGPT and Claude
+
+The server includes an MCP Apps resource for the read-only workflow UI and
+two presentation tools:
+
+- `show_workflows` opens the verified workflow list.
+- `show_workflow(workflow_id)` opens one verified workflow graph.
+
+`show_workflow` returns the schema-v2 preview payload. Unlike the compact
+`get_workflow` result used for normal agent reasoning, this UI-only result
+contains the workflow's persisted element properties, links and canvas
+coordinates. Referenced form triggers are enriched through the same
+authenticated Jotform client with the form title and question definitions,
+so the native read-only canvas can display real form and condition labels.
+The frontend never receives or manages a separate Jotform credential.
+
+The normal read/write tools do not carry UI metadata. This is intentional:
+the assistant can perform all create/update calls and read-back checks
+without opening a half-finished preview after every mutation. Server and
+agent instructions require `show_workflow` exactly once after the final
+verified create/update state, and `show_workflows` when the user asks to
+browse workflows.
+
+The packaged frontend is committed at
+`mcp_server/assets/workflow-mcp-ui.html`. To rebuild it from the sibling
+frontend workspace:
+
+```bash
+cd ../frontend
+pnpm --filter @jotforminc/workflow-mcp-ui build:mcp
+cp packages/apps/workflow-mcp-ui/build/mcp-app.html \
+  ../jotform-workflow-mcp/mcp_server/assets/workflow-mcp-ui.html
+```
+
+For another deployment layout, set
+`WORKFLOW_MCP_UI_HTML_PATH=/absolute/path/to/mcp-app.html`. If no artifact is
+available, the MCP server still starts and returns structured tool data, but
+the iframe displays a diagnostic page instead of the workflow preview.
+
 To connect a local Claude Desktop: add an entry to
 `claude_desktop_config.json` pointing `command` at `run_server.sh`'s
 absolute path. Remote connectors (reached from Anthropic's cloud, not
