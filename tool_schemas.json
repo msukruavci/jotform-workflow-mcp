@@ -33,7 +33,7 @@
       "properties": {
         "category": {
           "default": "",
-          "description": "Optional filter — \"basic\" (email, task, approval), \"logic\" (conditions, branching, loops), \"ai\" (AI-powered steps), or \"integration\" (webhooks, payments, signing). Leave empty to see all.",
+          "description": "Optional filter \u2014 \"basic\" (email, task, approval), \"logic\" (conditions, branching, loops), \"ai\" (AI-powered steps), or \"integration\" (webhooks, payments, signing). Leave empty to see all.",
           "title": "Category",
           "type": "string"
         }
@@ -44,11 +44,11 @@
   },
   {
     "name": "get_step_schema",
-    "description": "\n        Get the configurable fields for one workflow step type.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically.\n        ",
+    "description": "\n        Get the configurable fields for one workflow step type.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted \u2014 those are handled automatically.\n        ",
     "input_schema": {
       "properties": {
         "step_type": {
-          "description": "e.g. \"workflow_send_email\" — get exact names from list_step_types.",
+          "description": "e.g. \"workflow_send_email\" \u2014 get exact names from list_step_types.",
           "title": "Step Type",
           "type": "string"
         }
@@ -62,7 +62,7 @@
   },
   {
     "name": "list_workflows",
-    "description": "\n        List the user's workflows.\n\n        Returns each workflow's id, title, status, when it was last updated,\n        and run_count — how many times it has actually run, which is the\n        quickest way to tell a live workflow from an abandoned draft.\n\n        Use the id with get_workflow to see the steps.\n        ",
+    "description": "\n        List the user's workflows.\n\n        Returns each workflow's id, title, status, when it was last updated,\n        and run_count \u2014 how many times it has actually run, which is the\n        quickest way to tell a live workflow from an abandoned draft.\n\n        Use the id with get_workflow to see the steps.\n        ",
     "input_schema": {
       "properties": {},
       "title": "list_workflowsArguments",
@@ -71,7 +71,7 @@
   },
   {
     "name": "get_workflow",
-    "description": "\n        Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, the branch name on a conditional\n        branch, or the button/outcome text on an approval/task. That is how\n        you tell two paths apart. A split's paths are equivalent and carry\n        no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only — use get_step_details for one step's full\n        configuration.\n        ",
+    "description": "\n        Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, the branch name on a conditional\n        branch, or the button/outcome text on an approval/task. That is how\n        you tell two paths apart. A split's paths are equivalent and carry\n        no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only \u2014 use get_step_details for one step's full\n        configuration.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -89,7 +89,7 @@
   },
   {
     "name": "get_step_details",
-    "description": "\n        Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.\n        ",
+    "description": "\n        Get the full configuration of a single step \u2014 subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -182,7 +182,7 @@
   },
   {
     "name": "search_workflow_templates",
-    "description": "\n        Search the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        Use this tool when the user asks for workflow ideas, inspiration, or template\n        recommendations, or before creating a complex workflow to see how similar proven\n        workflows are structured.\n        ",
+    "description": "\n        Search the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        Use this tool whenever the user asks for workflow ideas, inspiration, or template\n        recommendations, or when asked to design/create a new workflow for any domain\n        (e.g., leave request, approvals, onboarding, expense, feedback) to discover proven\n        architectures and step patterns.\n        ",
     "input_schema": {
       "properties": {
         "query": {
@@ -266,7 +266,7 @@
   },
   {
     "name": "create_workflow",
-    "description": "\n        Create a new workflow with a trigger form.\n\n        Before using this tool in a new-workflow conversation, first ask the\n        user how the workflow should be triggered:\n\n        1. Use an existing form — then call list_forms and pass the chosen\n           form id as trigger_form_id.\n        2. Create a new form first — use create_workflow_with_ai_form instead.\n        3. No trigger form yet — only proceed with allow_without_trigger=true\n           if the user explicitly asks for a draft workflow without one.\n\n        Returns the new workflow_id. Use add_step to start adding steps.\n        ",
+    "description": "\n        Create a new workflow with a trigger form.\n\n        Before using this tool in a new-workflow conversation, first ask the\n        user how the workflow should be triggered:\n\n        1. Use an existing form \u2014 then call list_forms and pass the chosen\n           form id as trigger_form_id.\n        2. Create a new form first \u2014 use create_workflow_with_ai_form instead.\n        3. No trigger form yet \u2014 only proceed with allow_without_trigger=true\n           if the user explicitly asks for a draft workflow without one.\n\n        Returns the new workflow_id. Use add_step to start adding steps.\n        ",
     "input_schema": {
       "properties": {
         "title": {
@@ -276,7 +276,7 @@
         },
         "trigger_form_id": {
           "default": "",
-          "description": "Required unless allow_without_trigger=true — the form (from list_forms) whose submissions should trigger this workflow. Before calling create_workflow, decide the form strategy with the user: existing form or new AI-created form. For an existing form, call list_forms first and use the selected id here. For a new form, use create_workflow_with_ai_form instead of this tool. Binding takes two API calls under the hood and is verified by reading the start point back.",
+          "description": "Required unless allow_without_trigger=true \u2014 the form (from list_forms) whose submissions should trigger this workflow. Before calling create_workflow, decide the form strategy with the user: existing form or new AI-created form. For an existing form, call list_forms first and use the selected id here. For a new form, use create_workflow_with_ai_form instead of this tool. Binding takes two API calls under the hood and is verified by reading the start point back.",
           "title": "Trigger Form Id",
           "type": "string"
         },
@@ -355,6 +355,108 @@
     }
   },
   {
+    "name": "build_workflow_bulk",
+    "description": "\n        Build an entire workflow graph (all steps and connections) in a single atomic bulk operation.\n\n        Use this tool when creating a workflow rather than making repeated round-trip calls to add_step and connect_steps.\n        All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.\n        Use 'start' or '1' as from_ref to connect from the trigger form.\n        ",
+    "input_schema": {
+      "$defs": {
+        "ConnectionSpec": {
+          "properties": {
+            "from_ref": {
+              "description": "The source step's ref name (e.g. 'start', '1', or 'approval_1'). 'start' or '1' refers to the trigger form start point.",
+              "title": "From Ref",
+              "type": "string"
+            },
+            "to_ref": {
+              "description": "The target step's ref name (e.g. 'approval_1', 'notify_mgr').",
+              "title": "To Ref",
+              "type": "string"
+            },
+            "outcome": {
+              "default": "",
+              "description": "Required if from_ref is a branching step: if/else, conditional branch, approval, or task with outcomes (e.g. 'Approve', 'Deny', 'TRUE', 'FALSE'). Leave empty for non-branching steps.",
+              "title": "Outcome",
+              "type": "string"
+            }
+          },
+          "required": [
+            "from_ref",
+            "to_ref"
+          ],
+          "title": "ConnectionSpec",
+          "type": "object"
+        },
+        "StepSpec": {
+          "properties": {
+            "ref": {
+              "description": "A unique temporary reference name for this step in the bulk request (e.g. 'approval_1', 'notify_mgr', 'reject_email').",
+              "title": "Ref",
+              "type": "string"
+            },
+            "type": {
+              "description": "From list_step_types, e.g. \"workflow_approval\", \"workflow_send_email\".",
+              "title": "Type",
+              "type": "string"
+            },
+            "config": {
+              "additionalProperties": true,
+              "description": "Fields for this step type \u2014 check get_step_schema.",
+              "title": "Config",
+              "type": "object"
+            }
+          },
+          "required": [
+            "ref",
+            "type"
+          ],
+          "title": "StepSpec",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "workflow_id": {
+          "description": "From list_workflows or create_workflow.",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "steps": {
+          "description": "List of steps to create. Each step has a unique 'ref' name (e.g. 'approval_1', 'notify_mgr', 'reject_email'), 'type' (e.g. 'workflow_approval', 'workflow_send_email', 'workflow_conditional_branch'), and 'config' dict.",
+          "items": {
+            "$ref": "#/$defs/StepSpec"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "connections": {
+          "default": [],
+          "description": "List of connections between steps. 'from_ref' can be 'start' (or '1') for the trigger form, or any step 'ref'. 'to_ref' is the target step's 'ref'. 'outcome' is required for branching steps (e.g. 'Approve', 'Deny', 'TRUE', 'FALSE', or branch name).",
+          "items": {
+            "$ref": "#/$defs/ConnectionSpec"
+          },
+          "title": "Connections",
+          "type": "array"
+        },
+        "intent": {
+          "default": "",
+          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
+          "title": "Intent",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "steps"
+      ],
+      "title": "build_workflow_bulkArguments",
+      "type": "object"
+    }
+  },
+  {
     "name": "add_step",
     "description": "\n        Add a step to a workflow.\n\n        If the step needs meaningful content or outcomes, ask for the minimum\n        missing details first. Keep the question concise: one compact question\n        covering assignee/message/outcomes is better than a long checklist.\n\n        Returns the new step_id. Position on the canvas is chosen\n        automatically.\n        ",
     "input_schema": {
@@ -371,13 +473,13 @@
         },
         "config": {
           "additionalProperties": true,
-          "description": "Fields for this step type — call get_step_schema first to see what it accepts. Unknown fields are dropped, not rejected; check `warnings` in the result. Before adding steps whose behavior depends on user intent — tasks, emails, approvals, conditions, conditional branches, or any step with outcomes/description/message fields — ask one short question for the missing essentials instead of creating an empty placeholder. Examples: for a task ask who it is assigned to and what should be done; for a branch ask the branch names and conditions; for an approval ask the approver and outcomes. The server refuses empty task/approval/assign/email/sign/condition steps.",
+          "description": "Fields for this step type \u2014 call get_step_schema first to see what it accepts. Unknown fields are dropped, not rejected; check `warnings` in the result. Before adding steps whose behavior depends on user intent \u2014 tasks, emails, approvals, conditions, conditional branches, or any step with outcomes/description/message fields \u2014 ask one short question for the missing essentials instead of creating an empty placeholder. Examples: for a task ask who it is assigned to and what should be done; for a branch ask the branch names and conditions; for an approval ask the approver and outcomes. The server refuses empty task/approval/assign/email/sign/condition steps.",
           "title": "Config",
           "type": "object"
         },
         "after_step_id": {
           "default": "",
-          "description": "Optional — if given, connects this step directly after that one. Only works when after_step_id doesn't already have an outgoing connection (a step with more than one exit needs deliberate wiring — use connect_steps for that, with an outcome if the source branches).",
+          "description": "Optional \u2014 if given, connects this step directly after that one. Only works when after_step_id doesn't already have an outgoing connection (a step with more than one exit needs deliberate wiring \u2014 use connect_steps for that, with an outcome if the source branches).",
           "title": "After Step Id",
           "type": "string"
         },
@@ -459,7 +561,7 @@
   },
   {
     "name": "disconnect_steps",
-    "description": "\n        Remove a single connection between two steps, without deleting\n        either step.\n\n        If the connection leaves a branching step (if/else, conditional\n        branch, approval, or task with outcomes), that outcome's link is cleared first — so it\n        shows up as unconnected again and can be wired to something else\n        with connect_steps. Without this, the outcome would still point at\n        a link_id that no longer exists: resolve_outcome would wrongly\n        report it as already connected, and get_workflow's health check\n        would separately start flagging it as a dangling link.\n\n        Use this instead of add_step + connect_steps when the goal is\n        rewiring an existing structure — for example, replacing\n        On Submission -> Review -> Approval with a direct\n        On Submission -> Approval by removing the old link first.\n        ",
+    "description": "\n        Remove a single connection between two steps, without deleting\n        either step.\n\n        If the connection leaves a branching step (if/else, conditional\n        branch, approval, or task with outcomes), that outcome's link is cleared first \u2014 so it\n        shows up as unconnected again and can be wired to something else\n        with connect_steps. Without this, the outcome would still point at\n        a link_id that no longer exists: resolve_outcome would wrongly\n        report it as already connected, and get_workflow's health check\n        would separately start flagging it as a dangling link.\n\n        Use this instead of add_step + connect_steps when the goal is\n        rewiring an existing structure \u2014 for example, replacing\n        On Submission -> Review -> Approval with a direct\n        On Submission -> Approval by removing the old link first.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -495,7 +597,7 @@
   },
   {
     "name": "update_step",
-    "description": "\n        Change an existing step's configuration.\n\n        Does not move the step or change its connections — use connect_steps\n        for wiring.\n        ",
+    "description": "\n        Change an existing step's configuration.\n\n        Does not move the step or change its connections \u2014 use connect_steps\n        for wiring.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -510,7 +612,7 @@
         },
         "config": {
           "additionalProperties": true,
-          "description": "Only the fields to change — call get_step_details first to see current values, get_step_schema for valid fields.",
+          "description": "Only the fields to change \u2014 call get_step_details first to see current values, get_step_schema for valid fields.",
           "title": "Config",
           "type": "object"
         },
@@ -538,7 +640,7 @@
   },
   {
     "name": "delete_step",
-    "description": "\n        Delete a step from a workflow. Irreversible.\n\n        First call (confirm=false) changes nothing and returns the step's\n        type, label, and every connection that would break. Second call\n        (confirm=true) actually deletes it.\n\n        Confirmed (probes/test_delete_impact.py, 2026-08-10): Jotform does\n        NOT remove a step's connections when the step is deleted — this\n        tool deletes them explicitly, in the same request, so no broken\n        links are left behind.\n        ",
+    "description": "\n        Delete a step from a workflow. Irreversible.\n\n        First call (confirm=false) changes nothing and returns the step's\n        type, label, and every connection that would break. Second call\n        (confirm=true) actually deletes it.\n\n        Confirmed (probes/test_delete_impact.py, 2026-08-10): Jotform does\n        NOT remove a step's connections when the step is deleted \u2014 this\n        tool deletes them explicitly, in the same request, so no broken\n        links are left behind.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -553,7 +655,7 @@
         },
         "confirm": {
           "default": false,
-          "description": "Leave false to preview what deleting this step would affect. Only pass true after showing that preview to the user and getting their explicit go-ahead — never set this based on your own judgement that it's probably fine.",
+          "description": "Leave false to preview what deleting this step would affect. Only pass true after showing that preview to the user and getting their explicit go-ahead \u2014 never set this based on your own judgement that it's probably fine.",
           "title": "Confirm",
           "type": "boolean"
         },
@@ -580,7 +682,7 @@
   },
   {
     "name": "publish_workflow",
-    "description": "\n        Publish a workflow, making it live — from this point on, matching\n        form submissions actually run it.\n\n        First call (confirm=false) changes nothing. It runs the same health\n        check as get_workflow — unreachable steps, dead ends, unlabelled\n        branches — and returns them as warnings. A workflow with warnings\n        can still be published; the warnings exist so the user finds out\n        about a broken branch from you, before it goes live, rather than\n        from a submission that silently went nowhere.\n        ",
+    "description": "\n        Publish a workflow, making it live \u2014 from this point on, matching\n        form submissions actually run it.\n\n        First call (confirm=false) changes nothing. It runs the same health\n        check as get_workflow \u2014 unreachable steps, dead ends, unlabelled\n        branches \u2014 and returns them as warnings. A workflow with warnings\n        can still be published; the warnings exist so the user finds out\n        about a broken branch from you, before it goes live, rather than\n        from a submission that silently went nowhere.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -658,7 +760,7 @@
   },
   {
     "name": "delete_workflow",
-    "description": "\n        Delete an entire workflow. Irreversible, and bigger than delete_step\n        — this removes every step in it.\n\n        First call (confirm=false) changes nothing and returns the title\n        to show the user. Second call needs both confirm=true and\n        confirm_title matching exactly.\n        ",
+    "description": "\n        Delete an entire workflow. Irreversible, and bigger than delete_step\n        \u2014 this removes every step in it.\n\n        First call (confirm=false) changes nothing and returns the title\n        to show the user. Second call needs both confirm=true and\n        confirm_title matching exactly.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -674,7 +776,7 @@
         },
         "confirm_title": {
           "default": "",
-          "description": "Required alongside confirm=true — must exactly match the workflow's current title (returned in the preview). This exists because workflow titles are often similar or duplicated; matching by id alone made it easy to delete the wrong one by picking the wrong list index. Read the title back to the user and use what they confirm, don't retype it from memory.",
+          "description": "Required alongside confirm=true \u2014 must exactly match the workflow's current title (returned in the preview). This exists because workflow titles are often similar or duplicated; matching by id alone made it easy to delete the wrong one by picking the wrong list index. Read the title back to the user and use what they confirm, don't retype it from memory.",
           "title": "Confirm Title",
           "type": "string"
         },

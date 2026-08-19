@@ -24,9 +24,10 @@ from pydantic import Field
 from mcp_server import revision_log, schema_registry, tree_builder as tb, workflow_inspector
 from mcp_server.jotform_client import JotformAPIError, JotformClient
 from mcp_server.models import (
-    AddStepResult, ConnectStepsResult, CreateAIFormResult, CreateWorkflowResult,
+    AddStepResult, BuildWorkflowBulkResult, ConnectStepsResult, ConnectionSpec,
+    CreateAIFormResult, CreateWorkflowResult,
     CreateWorkflowWithAIFormResult,
-    DisconnectStepsResult, UpdateStepResult,
+    DisconnectStepsResult, StepSpec, UpdateStepResult,
 )
 
 
@@ -789,6 +790,257 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             form_title=form_title,
             form_summary=form_content.get("summary"),
             questions=questions,
+        )
+
+    @mcp.tool()
+    def build_workflow_bulk(
+        workflow_id: Annotated[str, Field(description="From list_workflows or create_workflow.")],
+        steps: Annotated[list[StepSpec], Field(
+            description=(
+                "List of steps to create. Each step has a unique 'ref' name (e.g. 'approval_1', 'notify_mgr', 'reject_email'), "
+                "'type' (e.g. 'workflow_approval', 'workflow_send_email', 'workflow_conditional_branch'), and 'config' dict."
+            )
+        )],
+        connections: Annotated[list[ConnectionSpec], Field(
+            default=[],
+            description=(
+                "List of connections between steps. 'from_ref' can be 'start' (or '1') for the trigger form, "
+                "or any step 'ref'. 'to_ref' is the target step's 'ref'. 'outcome' is required for branching steps "
+                "(e.g. 'Approve', 'Deny', 'TRUE', 'FALSE', or branch name)."
+            )
+        )] = [],
+        intent: Annotated[str, INTENT_FIELD] = "",
+        reason: Annotated[str, REASON_FIELD] = "",
+    ) -> BuildWorkflowBulkResult:
+        """
+        Build an entire workflow graph (all steps and connections) in a single atomic bulk operation.
+
+        Use this tool when creating a workflow rather than making repeated round-trip calls to add_step and connect_steps.
+        All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.
+        Use 'start' or '1' as from_ref to connect from the trigger form.
+        """
+        if not steps:
+            return BuildWorkflowBulkResult(error="No steps provided to build_workflow_bulk.")
+
+        # 1. Check uniqueness of step refs
+        step_items: list[tuple[str, str, dict]] = []
+        seen_refs: set[str] = set()
+        for s in steps:
+            s_ref = str(getattr(s, "ref", None) or (s.get("ref") if isinstance(s, dict) else "") or "").strip()
+            s_type = str(getattr(s, "type", None) or (s.get("type") if isinstance(s, dict) else "") or "").strip()
+            s_config = getattr(s, "config", None) if not isinstance(s, dict) else s.get("config")
+            s_config = dict(s_config or {})
+            if not s_ref:
+                return BuildWorkflowBulkResult(error="Every step in steps must have a non-empty 'ref'.")
+            if s_ref in seen_refs:
+                return BuildWorkflowBulkResult(error=f"Duplicate step ref '{s_ref}' found in steps list.")
+            if s_ref.lower() in ("start", "1"):
+                return BuildWorkflowBulkResult(error=f"Step ref '{s_ref}' is reserved for the trigger form start point.")
+            seen_refs.add(s_ref)
+            step_items.append((s_ref, s_type, s_config))
+
+        # 2. Check connections validity
+        conn_items: list[tuple[str, str, str]] = []
+        for c in connections or []:
+            c_from = str(getattr(c, "from_ref", None) or (c.get("from_ref") if isinstance(c, dict) else "") or "").strip()
+            c_to = str(getattr(c, "to_ref", None) or (c.get("to_ref") if isinstance(c, dict) else "") or "").strip()
+            c_outcome = str(getattr(c, "outcome", None) or (c.get("outcome") if isinstance(c, dict) else "") or "").strip()
+            if c_from not in seen_refs and c_from.lower() not in ("start", "1"):
+                return BuildWorkflowBulkResult(
+                    error=f"Connection from_ref '{c_from}' is invalid. Must be 'start', '1', or one of: {list(seen_refs)}."
+                )
+            if c_to not in seen_refs:
+                return BuildWorkflowBulkResult(
+                    error=f"Connection to_ref '{c_to}' is invalid. Must be one of: {list(seen_refs)}."
+                )
+            conn_items.append((c_from, c_to, c_outcome))
+
+        warnings: list[str] = []
+        clean_configs: dict[str, dict] = {}
+
+        # 3. Validate each step config
+        for s_ref, s_type, s_config in step_items:
+            try:
+                clean_cfg, step_warnings = tb.validate_config(s_type, s_config)
+            except tb.ValidationError as e:
+                return BuildWorkflowBulkResult(
+                    error=f"Step '{s_ref}' ({s_type}) config error: {e}",
+                    hint="Call list_step_types to see valid values.",
+                )
+            for w in step_warnings:
+                warnings.append(f"[{s_ref}] {w}")
+
+            missing = _missing_required_step_details(s_type, clean_cfg)
+            if missing:
+                return BuildWorkflowBulkResult(
+                    warnings=warnings,
+                    error=f"Step '{s_ref}' ({s_type}) needs more detail before it can be added. Missing: {', '.join(missing)}.",
+                    hint="Ask for or provide the essentials (assignee/approver/subject/body/outcomes) before bulk creation."
+                )
+
+            field_error, field_hint = _invalid_condition_field_message(client, workflow_id, s_type, clean_cfg)
+            if field_error:
+                return BuildWorkflowBulkResult(warnings=warnings, error=f"Step '{s_ref}': {field_error}", hint=field_hint)
+
+            assignee_fields = ASSIGNEE_FIELDS_BY_STEP_TYPE.get(s_type, ())
+            if assignee_fields:
+                clean_cfg, assignee_hint, assignee_error = _normalize_assignee_fields(client, workflow_id, clean_cfg, assignee_fields)
+                if assignee_error:
+                    return BuildWorkflowBulkResult(warnings=warnings, error=f"Step '{s_ref}': {assignee_error}")
+                if assignee_hint:
+                    warnings.append(f"[{s_ref}] {assignee_hint}")
+
+            if s_type in ("workflow_send_email", "workflow_reminder_email"):
+                clean_cfg, recipient_hint, recipient_error = _normalize_email_config(client, workflow_id, clean_cfg)
+                if recipient_error:
+                    return BuildWorkflowBulkResult(warnings=warnings, error=f"Step '{s_ref}': {recipient_error}")
+                if recipient_hint:
+                    warnings.append(f"[{s_ref}] {recipient_hint}")
+
+            clean_configs[s_ref] = clean_cfg
+
+        # 4. Fetch current workflow elements & links
+        try:
+            existing_elements = client.get_elements(workflow_id)
+            existing_links = client.get_links(workflow_id)
+        except JotformAPIError as e:
+            return BuildWorkflowBulkResult(error=str(e))
+
+        start_elem = next((e for e in existing_elements if e.get("type") == "workflow_start_point"), None)
+        start_id = start_elem.get("element_id") if start_elem else 1
+
+        existing_elem_ids = [
+            int(e.get("element_id"))
+            for e in existing_elements
+            if str(e.get("element_id", "")).isdigit()
+        ]
+        curr_elem_id = max(existing_elem_ids, default=1)
+
+        ref_to_id: dict[str, int | str] = {"start": start_id, "1": start_id}
+        for s_ref, _, _ in step_items:
+            curr_elem_id += 1
+            ref_to_id[s_ref] = curr_elem_id
+
+        all_elements = list(existing_elements)
+        element_creates: list[dict] = []
+        created_data_by_id: dict[int | str, dict] = {}
+
+        outgoing_counts: dict[str, int] = {}
+        for c_from, _, _ in conn_items:
+            outgoing_counts[c_from] = outgoing_counts.get(c_from, 0) + 1
+
+        outgoing_index: dict[str, int] = {}
+
+        for s_ref, s_type, _ in step_items:
+            eid = ref_to_id[s_ref]
+            cfg = clean_configs[s_ref]
+
+            parent_conn = next((c for c in conn_items if c[1] == s_ref), None)
+            parent_id = None
+            branch_offset = 0.0
+            if parent_conn:
+                p_from, _, _ = parent_conn
+                parent_id = ref_to_id.get(p_from)
+                total_out = outgoing_counts.get(p_from, 1)
+                idx_out = outgoing_index.get(p_from, 0)
+                outgoing_index[p_from] = idx_out + 1
+                if total_out > 1:
+                    branch_offset = (idx_out - (total_out - 1) / 2.0) * 1.2
+
+            pos = tb.compute_position(all_elements, parent_id, branch_offset=branch_offset)
+            elem_create = tb.build_element_create(s_type, eid, cfg, pos)
+            element_creates.append(elem_create)
+            created_data_by_id[eid] = elem_create["data"]
+            all_elements.append(elem_create["data"])
+
+        # 5. Build links and wire branching outcomes
+        existing_link_ids = [
+            int(l.get("link_id"))
+            for l in existing_links
+            if str(l.get("link_id", "")).isdigit()
+        ]
+        curr_link_id = max(existing_link_ids, default=0)
+
+        link_creates: list[dict] = []
+
+        for c_from, c_to, c_outcome in conn_items:
+            curr_link_id += 1
+            lid = curr_link_id
+            from_id = ref_to_id[c_from]
+            to_id = ref_to_id[c_to]
+
+            from_elem_data = created_data_by_id.get(from_id)
+            if from_elem_data is None:
+                from_elem_data = next((e for e in existing_elements if str(e.get("element_id")) == str(from_id)), {})
+
+            source_type = from_elem_data.get("type")
+            is_branching = source_type in schema_registry.BRANCHING_TYPES
+
+            if is_branching and not c_outcome:
+                available = [tb.outcome_label(o) for o in (from_elem_data.get("outcomes") or [])]
+                return BuildWorkflowBulkResult(
+                    warnings=warnings,
+                    error=f"Step '{c_from}' ({source_type}) is a branching step and requires an outcome.",
+                    hint=f"Available outcomes: {available}",
+                )
+            if not is_branching and c_outcome:
+                return BuildWorkflowBulkResult(
+                    warnings=warnings,
+                    error=f"Step '{c_from}' ({source_type}) does not branch — it takes no outcome.",
+                )
+
+            link_payload = tb.build_link_create(lid, from_id, to_id)
+
+            if is_branching:
+                try:
+                    matched_outcome = tb.resolve_outcome(from_elem_data, c_outcome)
+                except tb.ValidationError as e:
+                    return BuildWorkflowBulkResult(warnings=warnings, error=str(e))
+
+                outcome_label = tb.outcome_label(matched_outcome) or c_outcome
+                link_payload["data"]["labels"] = [{"justCreated": True, "label": outcome_label}]
+
+                outcome_id = matched_outcome.get("outcomeID") or matched_outcome.get("id")
+                outcomes = from_elem_data.get("outcomes") or []
+                updated_outcomes = []
+                for idx, o in enumerate(outcomes, start=1):
+                    curr_id = o.get("outcomeID") or o.get("id") or idx
+                    try:
+                        curr_id = int(curr_id)
+                        target_oid = int(outcome_id)
+                    except (TypeError, ValueError):
+                        curr_id = str(curr_id)
+                        target_oid = str(outcome_id)
+                    if curr_id == target_oid:
+                        updated_outcomes.append({**o, "linkID": lid})
+                    else:
+                        updated_outcomes.append(o)
+                from_elem_data["outcomes"] = updated_outcomes
+
+            link_creates.append(link_payload)
+
+        # 6. Atomic write via update_tree
+        try:
+            revision_log.capture_workflow_revision(
+                client,
+                workflow_id,
+                _revision_reason(f"before build_workflow_bulk ({len(steps)} steps)", intent, reason),
+                tool_name="build_workflow_bulk",
+            )
+            client.update_tree(
+                workflow_id,
+                elements=element_creates,
+                links=link_creates,
+            )
+        except JotformAPIError as e:
+            return BuildWorkflowBulkResult(error=str(e), warnings=warnings)
+
+        return BuildWorkflowBulkResult(
+            workflow_id=workflow_id,
+            workflow_url=_workflow_url(workflow_id),
+            created_steps={s_ref: str(ref_to_id[s_ref]) for s_ref, _, _ in step_items},
+            created_links_count=len(link_creates),
+            warnings=warnings,
         )
 
     @mcp.tool()

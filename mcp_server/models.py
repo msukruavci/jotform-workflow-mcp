@@ -367,6 +367,49 @@ class UpdateStepResult(BaseModel):
     hint: str | None = None
 
 
+class StepSpec(BaseModel):
+    ref: str = Field(
+        description="A unique temporary reference name for this step in the bulk request (e.g. 'approval_1', 'notify_mgr', 'reject_email')."
+    )
+    type: str = Field(
+        description='From list_step_types, e.g. "workflow_approval", "workflow_send_email".'
+    )
+    config: dict = Field(
+        default_factory=dict,
+        description="Fields for this step type — check get_step_schema."
+    )
+
+
+class ConnectionSpec(BaseModel):
+    from_ref: str = Field(
+        description="The source step's ref name (e.g. 'start', '1', or 'approval_1'). 'start' or '1' refers to the trigger form start point."
+    )
+    to_ref: str = Field(
+        description="The target step's ref name (e.g. 'approval_1', 'notify_mgr')."
+    )
+    outcome: str = Field(
+        default="",
+        description=(
+            "Required if from_ref is a branching step: if/else, conditional branch, "
+            "approval, or task with outcomes (e.g. 'Approve', 'Deny', 'TRUE', 'FALSE'). "
+            "Leave empty for non-branching steps."
+        )
+    )
+
+
+class BuildWorkflowBulkResult(BaseModel):
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    created_steps: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping from step ref to created Jotform step_id"
+    )
+    created_links_count: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+    hint: str | None = None
+
+
 # --- Layer 4: risky ------------------------------------------------------
 # Every result here carries needs_confirmation. The pattern: call once
 # without confirm=True to get a preview and nothing changes; call again

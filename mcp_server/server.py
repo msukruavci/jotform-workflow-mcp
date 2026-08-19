@@ -5,11 +5,12 @@ Run locally (stdio):   python -m mcp_server.server
 
 Tool layers:
   1. discovery — list_step_types, get_step_schema
-  2. reading   — list_workflows, get_workflow, get_step_details,
+  2. templates — search_workflow_templates
+  3. reading   — list_workflows, get_workflow, get_step_details,
                  inspect_workflow_gaps, list_forms, get_form_fields
-  3. building  — create_workflow, add_step, connect_steps,
-                 disconnect_steps, update_step
-  4. risky     — delete_step, publish_workflow, restore_workflow_revision,
+  4. building  — create_workflow, create_workflow_with_ai_form, build_workflow_bulk,
+                 add_step, connect_steps, disconnect_steps, update_step
+  5. risky     — delete_step, publish_workflow, restore_workflow_revision,
                  delete_workflow (confirm=True required to act)
 """
 from dotenv import load_dotenv
