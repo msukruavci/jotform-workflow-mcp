@@ -56,8 +56,8 @@ DEFAULT_ELEMENT_SIZE = {"width": 296, "height": 88}
 # Layout spacing. Nothing in Jotform's API computes this for us (unlike
 # ports) — canvas position is genuinely on us. Values are the element size
 # above plus enough gap that two adjacent nodes don't touch.
-STEP_Y = 180
-BRANCH_X = 340
+STEP_Y = 220
+BRANCH_X = 380
 
 
 class ValidationError(Exception):
@@ -112,27 +112,36 @@ def _size_of(el: dict) -> tuple[float, float]:
         return float(DEFAULT_ELEMENT_SIZE["width"]), float(DEFAULT_ELEMENT_SIZE["height"])
 
 
-def _overlaps(elements: list[dict], candidate_x: float, candidate_y: float) -> bool:
-    new_width = DEFAULT_ELEMENT_SIZE["width"]
-    new_height = DEFAULT_ELEMENT_SIZE["height"]
+def _overlaps(elements: list[dict], candidate_x: float, candidate_y: float, padding: float = 24.0) -> bool:
+    new_width = DEFAULT_ELEMENT_SIZE["width"] + padding
+    new_height = DEFAULT_ELEMENT_SIZE["height"] + padding
+    cand_x = candidate_x - padding / 2.0
+    cand_y = candidate_y - padding / 2.0
     for element in elements:
         position = _position_of(element)
         if position is None:
             continue
         x, y = position
         width, height = _size_of(element)
+        elem_x = x - padding / 2.0
+        elem_y = y - padding / 2.0
+        elem_w = width + padding
+        elem_h = height + padding
         if (
-            candidate_x < x + width
-            and candidate_x + new_width > x
-            and candidate_y < y + height
-            and candidate_y + new_height > y
+            cand_x < elem_x + elem_w
+            and cand_x + new_width > elem_x
+            and cand_y < elem_y + elem_h
+            and cand_y + new_height > elem_y
         ):
             return True
     return False
 
 
 def compute_position(
-    elements: list[dict], after_step_id: str | None, *, branch_offset: float = 0
+    elements: list[dict],
+    after_step_id: str | int | list[str | int] | None,
+    *,
+    branch_offset: float = 0,
 ) -> dict:
     """
     Where to put a new node.
@@ -140,17 +149,43 @@ def compute_position(
     With no anchor: below the lowest existing node, so new work doesn't land
     on top of the workflow's start.
 
-    With an anchor: start below it. `branch_offset` can select a deliberate
-    branch column, but callers that do not care can leave the default. If
-    that rectangle is occupied, search neighbouring columns, then lower
-    rows. This is intentionally local: adding one step must not move the
-    user's existing canvas.
+    With an anchor (or list of parent anchors): start below it/them.
+    If after_step_id is a list of parent ids (e.g. for merge/join nodes),
+    it centers horizontally at the average X of the parents and places below the lowest parent.
+    `branch_offset` selects a branch column. If that rectangle is occupied, search
+    neighbouring columns, then lower rows.
     """
     positioned = [p for p in (_position_of(e) for e in elements) if p is not None]
 
-    if after_step_id is None:
+    if not after_step_id:
         base_y = max((y for _, y in positioned), default=0)
-        return {"x": 0, "y": base_y + STEP_Y}
+        cand_y = base_y + (STEP_Y if positioned else 0)
+        while _overlaps(elements, 0, cand_y):
+            cand_y += STEP_Y
+        return {"x": 0, "y": cand_y}
+
+    if isinstance(after_step_id, list):
+        parent_ids = {str(pid) for pid in after_step_id if pid is not None}
+        parent_elems = [
+            e for e in elements if str(e.get("element_id")) in parent_ids and _position_of(e) is not None
+        ]
+        if parent_elems:
+            avg_x = sum(_position_of(e)[0] for e in parent_elems) / len(parent_elems)
+            max_y = max(_position_of(e)[1] for e in parent_elems)
+            base_x = avg_x + branch_offset * BRANCH_X
+            base_y = max_y + STEP_Y
+
+            x_offsets = [0]
+            for column in range(1, 100):
+                x_offsets.extend([column * BRANCH_X, -column * BRANCH_X])
+            for row in range(100):
+                y = base_y + row * STEP_Y
+                for offset in x_offsets:
+                    x = base_x + offset
+                    if not _overlaps(elements, x, y):
+                        return {"x": round(x, 1), "y": round(y, 1)}
+            return {"x": round(base_x, 1), "y": round(base_y, 1)}
+        after_step_id = after_step_id[0] if after_step_id else None
 
     anchor = next(
         (e for e in elements if str(e.get("element_id")) == str(after_step_id)), None
@@ -158,7 +193,10 @@ def compute_position(
     anchor_pos = _position_of(anchor) if anchor else None
     if anchor_pos is None:
         base_y = max((y for _, y in positioned), default=0)
-        return {"x": 0, "y": base_y + STEP_Y}
+        cand_y = base_y + (STEP_Y if positioned else 0)
+        while _overlaps(elements, 0, cand_y):
+            cand_y += STEP_Y
+        return {"x": 0, "y": cand_y}
 
     ax, ay = anchor_pos
     base_y = ay + STEP_Y
@@ -173,9 +211,9 @@ def compute_position(
         for offset in x_offsets:
             x = base_x + offset
             if not _overlaps(elements, x, y):
-                return {"x": x, "y": y}
+                return {"x": round(x, 1), "y": round(y, 1)}
 
-    return {"x": base_x, "y": base_y}
+    return {"x": round(base_x, 1), "y": round(base_y, 1)}
 
 
 # --------------------------------------------------------------------------
@@ -249,13 +287,71 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
                 f"'{key}'={value!r} not in {allowed}; field dropped"
             )
             continue
-        if step_type == "workflow_conditional_branch" and key == "outcomes":
+        if canonical_type == "workflow_conditional_branch" and key == "outcomes":
             value = _validate_conditional_branch_outcomes(value)
-        if step_type == "workflow_assign_task" and key == "outcomes":
+        if canonical_type == "workflow_assign_task" and key == "outcomes":
             value = _validate_task_outcomes(value)
+        if canonical_type == "workflow_approval" and key == "outcomes":
+            value = _validate_approval_outcomes(value)
         clean[key] = value
 
     return clean, warnings
+
+
+def _validate_approval_outcomes(outcomes) -> list[dict]:
+    if not isinstance(outcomes, list) or not outcomes:
+        return [
+            {"id": 1, "outcomeID": 1, "type": "APPROVE", "name": "Approve", "text": "Approve",
+             "buttonColor": "#01bd6f", "textColor": "#fff", "outcomeSign": "Yes"},
+            {"id": 2, "outcomeID": 2, "type": "DENY", "name": "Deny", "text": "Deny",
+             "buttonColor": "#D53049", "textColor": "#fff", "outcomeSign": "No"},
+        ]
+
+    normalized = []
+    default_types = ["APPROVE", "DENY"]
+    default_colors = ["#01bd6f", "#D53049"]
+    default_signs = ["Yes", "No"]
+
+    for idx, item in enumerate(outcomes, start=1):
+        if isinstance(item, str):
+            item_text = item.strip()
+            o_type = default_types[idx - 1] if idx <= 2 else "CUSTOM"
+            o_color = default_colors[idx - 1] if idx <= 2 else "#0075E3"
+            o_sign = default_signs[idx - 1] if idx <= 2 else "No"
+            normalized.append({
+                "id": idx,
+                "outcomeID": idx,
+                "type": o_type,
+                "name": "Approve" if idx == 1 else ("Deny" if idx == 2 else item_text),
+                "text": item_text,
+                "buttonColor": o_color,
+                "textColor": "#fff",
+                "outcomeSign": o_sign,
+            })
+        elif isinstance(item, dict):
+            outcome_id = item.get("outcomeID") or item.get("id") or idx
+            try:
+                outcome_id = int(outcome_id)
+            except (TypeError, ValueError):
+                outcome_id = idx
+            item_text = str(item.get("text") or item.get("name") or ("Approve" if idx == 1 else "Deny"))
+            o_type = item.get("type") or (default_types[idx - 1] if idx <= 2 else "CUSTOM")
+            o_color = item.get("buttonColor") or (default_colors[idx - 1] if idx <= 2 else "#0075E3")
+            o_sign = item.get("outcomeSign") or (default_signs[idx - 1] if idx <= 2 else "No")
+            item_dict = dict(item)
+            item_dict.pop("linkID", None)
+            normalized.append({
+                **item_dict,
+                "id": outcome_id,
+                "outcomeID": outcome_id,
+                "type": o_type,
+                "name": item.get("name") or ("Approve" if idx == 1 else ("Deny" if idx == 2 else item_text)),
+                "text": item_text,
+                "buttonColor": o_color,
+                "textColor": item.get("textColor") or "#fff",
+                "outcomeSign": o_sign,
+            })
+    return normalized
 
 
 def _task_outcome_object(outcome, idx: int) -> dict:
@@ -268,8 +364,10 @@ def _task_outcome_object(outcome, idx: int) -> dict:
             outcome_id = int(outcome_id)
         except (TypeError, ValueError):
             raise ValidationError(f"outcomes[{idx}] id/outcomeID must be an integer.")
+        outcome_dict = dict(outcome)
+        outcome_dict.pop("linkID", None)
         return {
-            **outcome,
+            **outcome_dict,
             "id": outcome_id,
             "outcomeID": outcome_id,
             "type": outcome.get("type") or "CUSTOM",
@@ -372,8 +470,10 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
             raise ValidationError(f"Duplicate outcomeID {outcome_id} in outcomes.")
         seen_ids.add(outcome_id)
 
+        outcome_dict = dict(outcome)
+        outcome_dict.pop("linkID", None)
         normalized_outcome = {
-            **outcome,
+            **outcome_dict,
             "id": outcome_id,
             "outcomeID": outcome_id,
             "type": outcome.get("type") or "CONDITION",
@@ -477,7 +577,7 @@ def build_link_label_update(link_id: int | str, label: str) -> dict:
 # `type` (workflow_approval's "Approve"/"Deny") stay as later fallbacks,
 # checked in this order because `text` is what a person would naturally
 # say; `type` is closer to an internal enum.
-_OUTCOME_LABEL_FIELDS = ("branchName", "conditionValue", "text", "type")
+_OUTCOME_LABEL_FIELDS = ("branchName", "conditionValue", "text", "name", "type")
 
 
 def outcome_label(outcome) -> str | None:

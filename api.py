@@ -56,6 +56,11 @@ app = mcp.streamable_http_app(
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
+# Route root / to the same streamable HTTP handler as /sse for clients connecting at the root URL
+from starlette.routing import Route  # noqa: E402
+sse_endpoint = app.routes[0].endpoint
+app.routes.append(Route("/", endpoint=sse_endpoint, methods=["GET", "POST", "OPTIONS", "HEAD"]))
+
 
 class AuditHTTPMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -148,6 +153,7 @@ async def oauth_meta(request):
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256", "plain"],
+        "resource": base_url,
     })
 
 from starlette.responses import RedirectResponse, JSONResponse, Response  # noqa: E402
@@ -157,6 +163,7 @@ app.add_route("/authorize", mock_authorize, methods=["GET", "POST"])
 app.add_route("/token", mock_token, methods=["GET", "POST"])
 app.add_route("/.well-known/oauth-authorization-server", oauth_meta, methods=["GET"])
 app.add_route("/.well-known/oauth-protected-resource", oauth_meta, methods=["GET"])
+app.add_route("/.well-known/oauth-protected-resource/", oauth_meta, methods=["GET"])
 app.add_route("/.well-known/oauth-protected-resource/sse", oauth_meta, methods=["GET"])
 
 

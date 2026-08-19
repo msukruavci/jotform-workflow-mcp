@@ -133,6 +133,69 @@ def test_build_workflow_bulk_branching():
     assert deny_out.get("linkID") == 3
 
 
+def test_build_workflow_bulk_custom_string_outcomes():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(
+            ref="approval_1",
+            type="workflow_approval",
+            config={
+                "name": "Yönetici Onayı",
+                "approver": "manager@company.com",
+                "taskDescription": "Review request",
+                "outcomes": ["Onayla", "Reddet"],
+            },
+        ),
+        StepSpec(
+            ref="approve_email",
+            type="workflow_send_email",
+            config={"to": "user@company.com", "subject": "Onaylandı", "content": "İzniniz onaylandı."},
+        ),
+        StepSpec(
+            ref="reject_email",
+            type="workflow_send_email",
+            config={"to": "user@company.com", "subject": "Reddedildi", "content": "İzniniz reddedildi."},
+        ),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="start", to_ref="approval_1"),
+        ConnectionSpec(from_ref="approval_1", to_ref="approve_email", outcome="Onayla"),
+        ConnectionSpec(from_ref="approval_1", to_ref="reject_email", outcome="Reddet"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error is None
+    assert result.created_steps == {
+        "approval_1": "2",
+        "approve_email": "3",
+        "reject_email": "4",
+    }
+    assert result.created_links_count == 3
+    assert len(client.update_calls) == 1
+
+    call = client.update_calls[0]
+    elements = call["elements"]
+    links = call["links"]
+
+    # Verify custom outcome labels on links
+    assert links[1]["data"]["labels"][0]["label"] == "Onayla"
+    assert links[2]["data"]["labels"][0]["label"] == "Reddet"
+
+    # Verify element outcomes are valid objects with text and linkID
+    approval_elem = next(e for e in elements if e["elementID"] == 2)
+    outcomes = approval_elem["data"]["outcomes"]
+    assert isinstance(outcomes[0], dict)
+    assert outcomes[0]["text"] == "Onayla"
+    assert outcomes[0]["linkID"] == 2
+    assert isinstance(outcomes[1], dict)
+    assert outcomes[1]["text"] == "Reddet"
+    assert outcomes[1]["linkID"] == 3
+
+
 def test_build_workflow_bulk_empty_steps_rejected():
     mcp = DummyMCP()
     client = DummyClient()

@@ -935,19 +935,24 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             eid = ref_to_id[s_ref]
             cfg = clean_configs[s_ref]
 
-            parent_conn = next((c for c in conn_items if c[1] == s_ref), None)
-            parent_id = None
-            branch_offset = 0.0
-            if parent_conn:
-                p_from, _, _ = parent_conn
+            incoming_parents = [c[0] for c in conn_items if c[1] == s_ref]
+            if len(incoming_parents) > 1:
+                # Multi-parent merge/join node: center horizontally between all incoming parents
+                parent_ids = [ref_to_id.get(p) for p in incoming_parents if ref_to_id.get(p) is not None]
+                pos = tb.compute_position(all_elements, parent_ids, branch_offset=0.0)
+            elif len(incoming_parents) == 1:
+                p_from = incoming_parents[0]
                 parent_id = ref_to_id.get(p_from)
                 total_out = outgoing_counts.get(p_from, 1)
                 idx_out = outgoing_index.get(p_from, 0)
                 outgoing_index[p_from] = idx_out + 1
+                branch_offset = 0.0
                 if total_out > 1:
-                    branch_offset = (idx_out - (total_out - 1) / 2.0) * 1.2
+                    branch_offset = (idx_out - (total_out - 1) / 2.0) * 1.15
+                pos = tb.compute_position(all_elements, parent_id, branch_offset=branch_offset)
+            else:
+                pos = tb.compute_position(all_elements, None)
 
-            pos = tb.compute_position(all_elements, parent_id, branch_offset=branch_offset)
             elem_create = tb.build_element_create(s_type, eid, cfg, pos)
             element_creates.append(elem_create)
             created_data_by_id[eid] = elem_create["data"]
@@ -977,12 +982,16 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             is_branching = source_type in schema_registry.BRANCHING_TYPES
 
             if is_branching and not c_outcome:
-                available = [tb.outcome_label(o) for o in (from_elem_data.get("outcomes") or [])]
-                return BuildWorkflowBulkResult(
-                    warnings=warnings,
-                    error=f"Step '{c_from}' ({source_type}) is a branching step and requires an outcome.",
-                    hint=f"Available outcomes: {available}",
-                )
+                outcomes_list = from_elem_data.get("outcomes") or []
+                if len(outcomes_list) == 1:
+                    c_outcome = tb.outcome_label(outcomes_list[0])
+                else:
+                    available = [tb.outcome_label(o) for o in outcomes_list]
+                    return BuildWorkflowBulkResult(
+                        warnings=warnings,
+                        error=f"Step '{c_from}' ({source_type}) is a branching step and requires an outcome.",
+                        hint=f"Available outcomes: {available}",
+                    )
             if not is_branching and c_outcome:
                 return BuildWorkflowBulkResult(
                     warnings=warnings,
@@ -1000,10 +1009,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 outcome_label = tb.outcome_label(matched_outcome) or c_outcome
                 link_payload["data"]["labels"] = [{"justCreated": True, "label": outcome_label}]
 
-                outcome_id = matched_outcome.get("outcomeID") or matched_outcome.get("id")
+                outcome_id = matched_outcome.get("outcomeID") or matched_outcome.get("id") if isinstance(matched_outcome, dict) else 1
                 outcomes = from_elem_data.get("outcomes") or []
                 updated_outcomes = []
                 for idx, o in enumerate(outcomes, start=1):
+                    if isinstance(o, str):
+                        o = tb._task_outcome_object(o, idx)
                     curr_id = o.get("outcomeID") or o.get("id") or idx
                     try:
                         curr_id = int(curr_id)
