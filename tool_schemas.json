@@ -1,7 +1,7 @@
 [
   {
     "name": "show_workflows",
-    "description": "Show the user's workflows in the interactive workflow list UI.\n\n        Use this presentation tool when the user asks to see, browse, list,\n        or choose from their workflows. It reads Jotform directly; never build\n        its payload from assistant prose or remembered tool results.",
+    "description": "\n        Show the user's workflows in the interactive workflow list UI.\n\n        Use this presentation tool when the user asks to see, browse, list,\n        or choose from their workflows. It reads Jotform directly; never build\n        its payload from assistant prose or remembered tool results.\n        ",
     "input_schema": {
       "properties": {},
       "title": "show_workflowsArguments",
@@ -10,7 +10,7 @@
   },
   {
     "name": "show_workflow",
-    "description": "Show one workflow in the interactive read-only workflow preview UI.\n\n        Use when the user asks to open, show, preview, or inspect a workflow.\n        Also call this exactly once after all requested workflow creation or\n        update operations have finished and their final state was read back.\n        Do not call it for intermediate write steps.",
+    "description": "\n        Show one workflow in the interactive read-only workflow preview UI.\n\n        Use when the user asks to open, show, preview, or inspect a workflow.\n        Also call this exactly once after all requested workflow creation or\n        update operations have finished and their final state was read back.\n        Do not call it for intermediate write steps.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -28,7 +28,7 @@
   },
   {
     "name": "list_step_types",
-    "description": "List the workflow step types you can add to a workflow.\n\n        Each entry gives an add_step step_type, the name the Jotform builder\n        shows for it (ui_name), and a one-line description. Some UI entries\n        are variants with a canonical_type and subtype; pass the listed\n        step_type directly to add_step.\n\n        schema_available=false means this server has no field schema for that\n        type: it can appear in an existing workflow, but get_step_schema will\n        not describe it. Call get_step_schema on a type before configuring it.",
+    "description": "\n        List the workflow step types you can add to a workflow.\n\n        Each entry gives an add_step step_type, the name the Jotform builder\n        shows for it (ui_name), and a one-line description. Some UI entries\n        are variants with a canonical_type and subtype; pass the listed\n        step_type directly to add_step.\n\n        schema_available=false means this server has no field schema for that\n        type: it can appear in an existing workflow, but get_step_schema will\n        not describe it. Call get_step_schema on a type before configuring it.\n        ",
     "input_schema": {
       "properties": {
         "category": {
@@ -44,7 +44,7 @@
   },
   {
     "name": "get_step_schema",
-    "description": "Get the configurable fields for one workflow step type.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically.",
+    "description": "\n        Get the configurable fields for one workflow step type.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically.\n        ",
     "input_schema": {
       "properties": {
         "step_type": {
@@ -62,7 +62,7 @@
   },
   {
     "name": "list_workflows",
-    "description": "List the user's workflows.\n\n        Returns each workflow's id, title, status, when it was last updated,\n        and run_count — how many times it has actually run, which is the\n        quickest way to tell a live workflow from an abandoned draft.\n\n        Use the id with get_workflow to see the steps.",
+    "description": "\n        List the user's workflows.\n\n        Returns each workflow's id, title, status, when it was last updated,\n        and run_count — how many times it has actually run, which is the\n        quickest way to tell a live workflow from an abandoned draft.\n\n        Use the id with get_workflow to see the steps.\n        ",
     "input_schema": {
       "properties": {},
       "title": "list_workflowsArguments",
@@ -71,7 +71,7 @@
   },
   {
     "name": "get_workflow",
-    "description": "Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, the branch name on a conditional\n        branch, or the button/outcome text on an approval/task. That is how\n        you tell two paths apart. A split's paths are equivalent and carry\n        no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only — use get_step_details for one step's full\n        configuration.",
+    "description": "\n        Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, the branch name on a conditional\n        branch, or the button/outcome text on an approval/task. That is how\n        you tell two paths apart. A split's paths are equivalent and carry\n        no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only — use get_step_details for one step's full\n        configuration.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -89,7 +89,7 @@
   },
   {
     "name": "get_step_details",
-    "description": "Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.",
+    "description": "\n        Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -113,7 +113,7 @@
   },
   {
     "name": "list_workflow_revisions",
-    "description": "List saved workflow revisions for this MCP server session/history.\n\n        Revisions are full snapshots captured automatically before mutating\n        tools write to Jotform. Use restore_workflow_revision to preview and\n        restore one of them.",
+    "description": "\n        List saved workflow revisions for this MCP server session/history.\n\n        Revisions are full snapshots captured automatically before mutating\n        tools write to Jotform. Use restore_workflow_revision to preview and\n        restore one of them.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -137,7 +137,7 @@
   },
   {
     "name": "inspect_workflow_gaps",
-    "description": "Check for incomplete workflow setup before continuing or publishing.\n\n        This catches empty links, unwired branch outcomes, missing assignees,\n        missing email/task content, and condition fields that are not real\n        fields on the trigger form. Call this before presenting a workflow as\n        ready, and when the user asks what still needs to be completed.",
+    "description": "\n        Check for incomplete workflow setup before continuing or publishing.\n\n        This catches empty links, unwired branch outcomes, missing assignees,\n        missing email/task content, and condition fields that are not real\n        fields on the trigger form. Call this before presenting a workflow as\n        ready, and when the user asks what still needs to be completed.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -155,7 +155,7 @@
   },
   {
     "name": "list_forms",
-    "description": "List the user's forms, with each form's id, title, status and\n        submission count.\n\n        A workflow is triggered by one of these, so this is usually the first\n        call when working out which form a workflow is about.",
+    "description": "\n        List the user's forms, with each form's id, title, status and\n        submission count.\n\n        A workflow is triggered by one of these, so this is usually the first\n        call when working out which form a workflow is about.\n        ",
     "input_schema": {
       "properties": {},
       "title": "list_formsArguments",
@@ -164,7 +164,7 @@
   },
   {
     "name": "get_form_fields",
-    "description": "List a form's fields (questions), with each field's id, label, type\n        and whether it is required.\n\n        Needed for two things: picking which field a condition should test,\n        and picking which field holds the email address when sending mail to\n        the person who submitted the form.",
+    "description": "\n        List a form's fields (questions), with each field's id, label, type\n        and whether it is required.\n\n        Needed for two things: picking which field a condition should test,\n        and picking which field holds the email address when sending mail to\n        the person who submitted the form.\n        ",
     "input_schema": {
       "properties": {
         "form_id": {
@@ -181,8 +181,50 @@
     }
   },
   {
+    "name": "search_workflow_templates",
+    "description": "\n        Search the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        Use this tool when the user asks for workflow ideas, inspiration, or template\n        recommendations, or before creating a complex workflow to see how similar proven\n        workflows are structured.\n        ",
+    "input_schema": {
+      "properties": {
+        "query": {
+          "description": "Natural language query describing the desired workflow idea, domain, or process (e.g. 'employee vacation approval flow', 'purchase order approval with signature').",
+          "title": "Query",
+          "type": "string"
+        },
+        "top_k": {
+          "default": 3,
+          "description": "Number of relevant template references to return (default 3, max 10)",
+          "title": "Top K",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "title": "search_workflow_templatesArguments",
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_workflow_template",
+    "description": "\n        Retrieve the full architectural blueprint of a workflow template.\n\n        Returns complete element configurations (names, types, approval outcomes/buttons,\n        assigned roles, email templates, timeouts) and edge links connecting each step.\n        Use this to inspect exact configurations or replicate a template's flow structure.\n        ",
+    "input_schema": {
+      "properties": {
+        "template_id": {
+          "description": "The unique ID of the template to inspect in detail (e.g. '242943285550056').",
+          "title": "Template Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "template_id"
+      ],
+      "title": "get_workflow_templateArguments",
+      "type": "object"
+    }
+  },
+  {
     "name": "create_form_with_ai",
-    "description": "Create a new Jotform form from an AI prompt.\n\n        Use this only after the user chooses \"create a new form\" for a\n        workflow trigger and describes what the form should collect.",
+    "description": "\n        Create a new Jotform form from an AI prompt.\n\n        Use this only after the user chooses \"create a new form\" for a\n        workflow trigger and describes what the form should collect.\n        ",
     "input_schema": {
       "properties": {
         "prompt": {
@@ -224,7 +266,7 @@
   },
   {
     "name": "create_workflow",
-    "description": "Create a new workflow with a trigger form.\n\n        Before using this tool in a new-workflow conversation, first ask the\n        user how the workflow should be triggered:\n\n        1. Use an existing form — then call list_forms and pass the chosen\n           form id as trigger_form_id.\n        2. Create a new form first — use create_workflow_with_ai_form instead.\n        3. No trigger form yet — only proceed with allow_without_trigger=true\n           if the user explicitly asks for a draft workflow without one.\n\n        Returns the new workflow_id. Use add_step to start adding steps.",
+    "description": "\n        Create a new workflow with a trigger form.\n\n        Before using this tool in a new-workflow conversation, first ask the\n        user how the workflow should be triggered:\n\n        1. Use an existing form — then call list_forms and pass the chosen\n           form id as trigger_form_id.\n        2. Create a new form first — use create_workflow_with_ai_form instead.\n        3. No trigger form yet — only proceed with allow_without_trigger=true\n           if the user explicitly asks for a draft workflow without one.\n\n        Returns the new workflow_id. Use add_step to start adding steps.\n        ",
     "input_schema": {
       "properties": {
         "title": {
@@ -266,7 +308,7 @@
   },
   {
     "name": "create_workflow_with_ai_form",
-    "description": "Create a new AI-generated form, then create a workflow triggered by it.\n\n        Use this when the user wants a new form rather than an existing form.\n        Ask what the form should collect before calling this tool.",
+    "description": "\n        Create a new AI-generated form, then create a workflow triggered by it.\n\n        Use this when the user wants a new form rather than an existing form.\n        Ask what the form should collect before calling this tool.\n        ",
     "input_schema": {
       "properties": {
         "title": {
@@ -314,7 +356,7 @@
   },
   {
     "name": "add_step",
-    "description": "Add a step to a workflow.\n\n        If the step needs meaningful content or outcomes, ask for the minimum\n        missing details first. Keep the question concise: one compact question\n        covering assignee/message/outcomes is better than a long checklist.\n\n        Returns the new step_id. Position on the canvas is chosen\n        automatically.",
+    "description": "\n        Add a step to a workflow.\n\n        If the step needs meaningful content or outcomes, ask for the minimum\n        missing details first. Keep the question concise: one compact question\n        covering assignee/message/outcomes is better than a long checklist.\n\n        Returns the new step_id. Position on the canvas is chosen\n        automatically.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -369,7 +411,7 @@
   },
   {
     "name": "connect_steps",
-    "description": "Connect two existing steps.\n\n        Fails without changing anything if the outcome doesn't exist, is\n        already connected elsewhere, or is missing when required.",
+    "description": "\n        Connect two existing steps.\n\n        Fails without changing anything if the outcome doesn't exist, is\n        already connected elsewhere, or is missing when required.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -417,7 +459,7 @@
   },
   {
     "name": "disconnect_steps",
-    "description": "Remove a single connection between two steps, without deleting\n        either step.\n\n        If the connection leaves a branching step (if/else, conditional\n        branch, approval, or task with outcomes), that outcome's link is cleared first — so it\n        shows up as unconnected again and can be wired to something else\n        with connect_steps. Without this, the outcome would still point at\n        a link_id that no longer exists: resolve_outcome would wrongly\n        report it as already connected, and get_workflow's health check\n        would separately start flagging it as a dangling link.\n\n        Use this instead of add_step + connect_steps when the goal is\n        rewiring an existing structure — for example, replacing\n        On Submission -> Review -> Approval with a direct\n        On Submission -> Approval by removing the old link first.",
+    "description": "\n        Remove a single connection between two steps, without deleting\n        either step.\n\n        If the connection leaves a branching step (if/else, conditional\n        branch, approval, or task with outcomes), that outcome's link is cleared first — so it\n        shows up as unconnected again and can be wired to something else\n        with connect_steps. Without this, the outcome would still point at\n        a link_id that no longer exists: resolve_outcome would wrongly\n        report it as already connected, and get_workflow's health check\n        would separately start flagging it as a dangling link.\n\n        Use this instead of add_step + connect_steps when the goal is\n        rewiring an existing structure — for example, replacing\n        On Submission -> Review -> Approval with a direct\n        On Submission -> Approval by removing the old link first.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -453,7 +495,7 @@
   },
   {
     "name": "update_step",
-    "description": "Change an existing step's configuration.\n\n        Does not move the step or change its connections — use connect_steps\n        for wiring.",
+    "description": "\n        Change an existing step's configuration.\n\n        Does not move the step or change its connections — use connect_steps\n        for wiring.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -496,7 +538,7 @@
   },
   {
     "name": "delete_step",
-    "description": "Delete a step from a workflow. Irreversible.\n\n        First call (confirm=false) changes nothing and returns the step's\n        type, label, and every connection that would break. Second call\n        (confirm=true) actually deletes it.\n\n        Confirmed (probes/test_delete_impact.py, 2026-08-10): Jotform does\n        NOT remove a step's connections when the step is deleted — this\n        tool deletes them explicitly, in the same request, so no broken\n        links are left behind.",
+    "description": "\n        Delete a step from a workflow. Irreversible.\n\n        First call (confirm=false) changes nothing and returns the step's\n        type, label, and every connection that would break. Second call\n        (confirm=true) actually deletes it.\n\n        Confirmed (probes/test_delete_impact.py, 2026-08-10): Jotform does\n        NOT remove a step's connections when the step is deleted — this\n        tool deletes them explicitly, in the same request, so no broken\n        links are left behind.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -538,7 +580,7 @@
   },
   {
     "name": "publish_workflow",
-    "description": "Publish a workflow, making it live — from this point on, matching\n        form submissions actually run it.\n\n        First call (confirm=false) changes nothing. It runs the same health\n        check as get_workflow — unreachable steps, dead ends, unlabelled\n        branches — and returns them as warnings. A workflow with warnings\n        can still be published; the warnings exist so the user finds out\n        about a broken branch from you, before it goes live, rather than\n        from a submission that silently went nowhere.",
+    "description": "\n        Publish a workflow, making it live — from this point on, matching\n        form submissions actually run it.\n\n        First call (confirm=false) changes nothing. It runs the same health\n        check as get_workflow — unreachable steps, dead ends, unlabelled\n        branches — and returns them as warnings. A workflow with warnings\n        can still be published; the warnings exist so the user finds out\n        about a broken branch from you, before it goes live, rather than\n        from a submission that silently went nowhere.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -574,7 +616,7 @@
   },
   {
     "name": "restore_workflow_revision",
-    "description": "Restore a workflow to a saved revision.\n\n        Revisions are captured automatically before add/update/connect/\n        disconnect/delete/publish operations. Without revision_id, this uses\n        the newest saved revision, so it is the \"go back one change\" tool.",
+    "description": "\n        Restore a workflow to a saved revision.\n\n        Revisions are captured automatically before add/update/connect/\n        disconnect/delete/publish operations. Without revision_id, this uses\n        the newest saved revision, so it is the \"go back one change\" tool.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -616,7 +658,7 @@
   },
   {
     "name": "delete_workflow",
-    "description": "Delete an entire workflow. Irreversible, and bigger than delete_step\n        — this removes every step in it.\n\n        First call (confirm=false) changes nothing and returns the title\n        to show the user. Second call needs both confirm=true and\n        confirm_title matching exactly.",
+    "description": "\n        Delete an entire workflow. Irreversible, and bigger than delete_step\n        — this removes every step in it.\n\n        First call (confirm=false) changes nothing and returns the title\n        to show the user. Second call needs both confirm=true and\n        confirm_title matching exactly.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {

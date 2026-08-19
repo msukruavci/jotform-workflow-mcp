@@ -42,7 +42,7 @@ echo
 if command -v cloudflared >/dev/null 2>&1 || [[ -x /home/avci/Desktop/jotform-mcp-phase1/cloudflared ]]; then
   CLOUDFLARED_BIN="$(command -v cloudflared 2>/dev/null || echo /home/avci/Desktop/jotform-mcp-phase1/cloudflared)"
   echo "   [cloudflared, hızlı tünel (uyarı sayfası yok) — URL her çalıştırmada değişir]"
-  "$CLOUDFLARED_BIN" tunnel --url "http://localhost:$PORT"
+  "$CLOUDFLARED_BIN" tunnel --protocol http2 --url "http://localhost:$PORT"
 elif command -v ngrok >/dev/null 2>&1; then
   if [[ -n "$NGROK_DOMAIN" ]]; then
     echo "   [ngrok, sabit domain: $NGROK_DOMAIN]"

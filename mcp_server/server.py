@@ -17,13 +17,14 @@ load_dotenv()
 
 from mcp_server.audit_log import AuditedMCPServer  # noqa: E402
 from mcp_server.jotform_client import JotformClient  # noqa: E402
-from mcp_server.tools import building, discovery, reading, risky  # noqa: E402
+from mcp_server.tools import building, discovery, reading, risky, templates  # noqa: E402
 from mcp_server.ui import create_workflow_apps  # noqa: E402
 
 client = JotformClient()
 workflow_apps = create_workflow_apps(client)
 
 SERVER_INSTRUCTIONS = """
+When the user asks to create, design, or set up a workflow (even with brief, high-level requests), automatically call search_workflow_templates first to discover proven architectures. Proactively create the workflow with AI trigger form and standard steps, inspect health/gaps, and call show_workflow to present the complete visual workflow.
 Use show_workflows ONLY when the user asks to see, browse, list, or choose from multiple workflows.
 When the user asks to open, preview, or inspect a specific workflow (by name or ID), resolve the ID (using list_workflows internally only if needed) and call show_workflow directly — do NOT call show_workflows.
 After creating or updating a workflow, finish every requested mutation first,
@@ -40,6 +41,7 @@ mcp = AuditedMCPServer(
 
 discovery.register(mcp)
 reading.register(mcp, client)
+templates.register(mcp)
 building.register(mcp, client)
 risky.register(mcp, client)
 
