@@ -13,7 +13,12 @@ from mcp_server.jotform_client import JotformClient
 from mcp_server.models import WorkflowListUIResult, WorkflowPreviewUIResult
 from mcp_server.tools.reading import read_workflow_list, read_workflow_preview
 
-WORKFLOW_UI_RESOURCE_URI = "ui://jotform/workflows/v2.html"
+WORKFLOW_UI_RESOURCE_URI = "ui://jotform/workflows/v5.html"
+WORKFLOW_UI_LEGACY_RESOURCE_URIS = (
+    "ui://jotform/workflows/v2.html",
+    "ui://jotform/workflows/v3.html",
+    "ui://jotform/workflows/v4.html",
+)
 LOGGER = logging.getLogger(__name__)
 
 _FALLBACK_HTML = """<!doctype html>
@@ -58,14 +63,16 @@ def load_workflow_ui_html() -> str:
 def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> Apps:
     """Create the UI extension before it is attached to the MCP server."""
     apps = Apps()
-    apps.add_html_resource(
-        WORKFLOW_UI_RESOURCE_URI,
-        html if html is not None else load_workflow_ui_html(),
-        name="Jotform Workflow UI",
-        title="Jotform Workflows",
-        description="Read-only workflow list and verified workflow graph preview.",
-        prefers_border=True,
-    )
+    resource_html = html if html is not None else load_workflow_ui_html()
+    for resource_uri in (*WORKFLOW_UI_LEGACY_RESOURCE_URIS, WORKFLOW_UI_RESOURCE_URI):
+        apps.add_html_resource(
+            resource_uri,
+            resource_html,
+            name="Jotform Workflow UI",
+            title="Jotform Workflows",
+            description="Read-only workflow list and verified workflow graph preview.",
+            prefers_border=True,
+        )
 
     compatibility_meta = {
         "openai/outputTemplate": WORKFLOW_UI_RESOURCE_URI,
