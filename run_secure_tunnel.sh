@@ -38,7 +38,7 @@ fi
 echo "OpenAI Secure Tunnel başlatılıyor..."
 echo "profile=$PROFILE"
 echo "mcp_command=$(pwd)/run_server.sh"
-echo "admin_ui=http://127.0.0.1:8080/ui"
+echo "admin_ui=http://127.0.0.1:8090/ui"
 echo
 
 ARGS=(run --profile "$PROFILE" --control-plane.api-key env:CONTROL_PLANE_API_KEY)

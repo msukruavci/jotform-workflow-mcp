@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from mcp.server.apps import Apps
+from mcp.server.apps import Apps, ResourceCsp
 from pydantic import Field
 
 from mcp_server.jotform_client import JotformClient
@@ -67,6 +67,13 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             name="Jotform Workflow UI",
             title="Jotform Workflows",
             description="Read-only workflow list and verified workflow graph preview.",
+            domain="jotform.com",
+            csp=ResourceCsp(
+                connect_domains=["https://api.jotform.com", "https://*.jotform.com"],
+                resource_domains=["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
+                frame_domains=[],
+                base_uri_domains=[],
+            ),
             prefers_border=True,
         )
 
