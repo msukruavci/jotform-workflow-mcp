@@ -676,7 +676,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         3. No trigger form yet — only proceed with allow_without_trigger=true
            if the user explicitly asks for a draft workflow without one.
 
-        Returns the new workflow_id. Use add_step to start adding steps.
+        Returns the new workflow_id. ALWAYS use build_workflow_bulk to add
+        all steps and connections in one atomic shot. DO NOT call add_step in a loop.
         """
         if not trigger_form_id and not allow_without_trigger:
             return CreateWorkflowResult(
@@ -735,8 +736,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         """
         Create a new AI-generated form, then create a workflow triggered by it.
 
-        Use this when the user wants a new form rather than an existing form.
-        Ask what the form should collect before calling this tool.
+        ALWAYS use build_workflow_bulk immediately after to add all steps and
+        connections in one atomic shot. DO NOT call add_step or connect_steps in a loop.
         """
         try:
             form_content = client.create_form_with_ai(
@@ -943,12 +944,24 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             elif len(incoming_parents) == 1:
                 p_from = incoming_parents[0]
                 parent_id = ref_to_id.get(p_from)
-                total_out = outgoing_counts.get(p_from, 1)
-                idx_out = outgoing_index.get(p_from, 0)
-                outgoing_index[p_from] = idx_out + 1
+                matching_conns = [c for c in conn_items if c[0] == p_from]
+                conn_to_this = next((c for c in matching_conns if c[1] == s_ref), None)
+                outcome_str = (conn_to_this[2] if conn_to_this else "").strip().lower()
+
+                total_out = len(matching_conns)
+                idx_out = [c[1] for c in matching_conns].index(s_ref) if conn_to_this else 0
+
                 branch_offset = 0.0
-                if total_out > 1:
-                    branch_offset = (idx_out - (total_out - 1) / 2.0) * 1.15
+                if total_out == 2:
+                    if any(k in outcome_str for k in ("approve", "true", "provisioned", "yes", "success", "resolved")):
+                        branch_offset = -0.7
+                    elif any(k in outcome_str for k in ("reject", "deny", "false", "unable", "no", "cancel", "fail", "other")):
+                        branch_offset = +0.7
+                    else:
+                        branch_offset = (idx_out - 0.5) * 1.3
+                elif total_out > 2:
+                    branch_offset = (idx_out - (total_out - 1) / 2.0) * 1.25
+
                 pos = tb.compute_position(all_elements, parent_id, branch_offset=branch_offset)
             else:
                 pos = tb.compute_position(all_elements, None)
@@ -1096,14 +1109,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> AddStepResult:
         """
-        Add a step to a workflow.
+        Add a single step to an EXISTING workflow for minor manual edits.
 
-        If the step needs meaningful content or outcomes, ask for the minimum
-        missing details first. Keep the question concise: one compact question
-        covering assignee/message/outcomes is better than a long checklist.
+        CRITICAL: DO NOT call add_step in a loop when creating or generating a workflow.
+        ALWAYS use build_workflow_bulk instead to build all steps and wiring in one atomic call.
 
-        Returns the new step_id. Position on the canvas is chosen
-        automatically.
+        Returns the new step_id. Position on the canvas is chosen automatically.
         """
         try:
             clean_config, warnings = tb.validate_config(step_type, config)
@@ -1273,7 +1284,10 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> ConnectStepsResult:
         """
-        Connect two existing steps.
+        Connect two existing steps in an EXISTING workflow for minor manual edits.
+
+        CRITICAL: DO NOT call connect_steps in a loop when creating or generating a workflow.
+        ALWAYS use build_workflow_bulk instead to build all steps and connections in one atomic call.
 
         Fails without changing anything if the outcome doesn't exist, is
         already connected elsewhere, or is missing when required.
