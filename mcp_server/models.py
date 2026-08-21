@@ -281,6 +281,10 @@ class StepSchema(BaseModel):
     description: str | None = None
     ui_name: str | None = None
     fields: list[SchemaField] = Field(default_factory=list)
+    schemas: dict[str, "StepSchema"] = Field(
+        default_factory=dict,
+        description="Batch result mapping step_type to its schema result",
+    )
     error: str | None = None
     hint: str | None = None
     available_types: list[str] = Field(default_factory=list)

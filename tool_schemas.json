@@ -44,18 +44,25 @@
   },
   {
     "name": "get_step_schema",
-    "description": "Get the configurable fields for one workflow step type.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically.",
+    "description": "Get the configurable fields for one or more workflow step types.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically. For\n        multiple unfamiliar types, pass step_types=[...] to fetch every schema\n        in one tool roundtrip.",
     "input_schema": {
       "properties": {
         "step_type": {
-          "description": "e.g. \"workflow_send_email\" — get exact names from list_step_types.",
+          "default": "",
+          "description": "Single step type name (e.g. \"workflow_send_email\").",
           "title": "Step Type",
           "type": "string"
+        },
+        "step_types": {
+          "default": [],
+          "description": "Optional list of step type names to retrieve schemas for in a single batch call.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Step Types",
+          "type": "array"
         }
       },
-      "required": [
-        "step_type"
-      ],
       "title": "get_step_schemaArguments",
       "type": "object"
     }
