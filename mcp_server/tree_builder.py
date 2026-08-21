@@ -26,6 +26,8 @@ probes that produced each one:
 """
 from __future__ import annotations
 
+import re
+
 from mcp_server import schema_registry
 
 # The one payload shape gap 2 confirmed works for any link, regardless of
@@ -214,6 +216,237 @@ def compute_position(
                 return {"x": round(x, 1), "y": round(y, 1)}
 
     return {"x": round(base_x, 1), "y": round(base_y, 1)}
+
+
+def _canonical_layout_ref(ref: str | int | None) -> str:
+    value = str(ref or "").strip()
+    return "start" if value.lower() in ("start", "1") else value
+
+
+_PRIMARY_BRANCH_WORDS = {
+    "approve", "approved", "true", "provisioned", "yes", "success", "succeeded",
+    "complete", "completed", "resolved", "pass", "passed", "ok", "onay", "onayla",
+    "basarili",
+}
+_ALTERNATIVE_BRANCH_WORDS = {
+    "reject", "rejected", "deny", "denied", "false", "unable", "no", "cancel",
+    "cancelled", "canceled", "fail", "failed", "failure", "error", "exception",
+    "other", "red", "reddet", "reddedildi",
+}
+
+
+def _semantic_branch_weight(label: str) -> int:
+    """
+    Sort branch lanes by intent: primary/success paths left, alternatives right.
+
+    This is deliberately heuristic. Outcome labels are authored by users and
+    templates, so exact enum matching is too brittle for layout.
+    """
+    text = str(label or "").strip().lower()
+    if not text:
+        return 0
+    tokens = set(re.findall(r"\w+", text))
+    if "unable" in text or "cannot" in text or "can't" in text:
+        return 1
+    if tokens & _PRIMARY_BRANCH_WORDS:
+        return -1
+    if tokens & _ALTERNATIVE_BRANCH_WORDS:
+        return 1
+    return 0
+
+
+def compute_layered_dag_positions(
+    elements: list[dict],
+    step_refs: list[str],
+    connections: list[tuple[str, str, str]],
+    *,
+    start_step_id: str | int = 1,
+) -> dict[str, dict]:
+    """
+    Compute holistic positions for a batch of new workflow steps.
+
+    The bulk builder knows the whole DAG before it writes, so it can do better
+    than repeatedly asking `compute_position` for local "below parent" slots:
+
+    - Y is assigned from the longest parent path, so every child is strictly
+      below its parent and merge nodes are below their lowest incoming parent.
+    - X is assigned from recursive subtree widths, so nested branches reserve
+      enough horizontal lane space for their descendants.
+    - Branch outcome labels nudge success/approval lanes to the left and
+      rejection/error lanes to the right.
+    """
+    ordered_refs = [str(ref) for ref in step_refs]
+    step_set = set(ordered_refs)
+    if not ordered_refs:
+        return {}
+
+    start_elem = next(
+        (e for e in elements if str(e.get("element_id")) == str(start_step_id)),
+        None,
+    ) or next((e for e in elements if e.get("type") == "workflow_start_point"), None)
+    start_pos = _position_of(start_elem) if start_elem else None
+    start_x, start_y = start_pos if start_pos is not None else (0.0, 0.0)
+
+    existing_positions = [p for p in (_position_of(e) for e in elements) if p is not None]
+    max_existing_y = max((y for _, y in existing_positions), default=start_y)
+
+    parents: dict[str, list[str]] = {ref: [] for ref in ordered_refs}
+    children: dict[str, list[str]] = {"start": []}
+    edge_labels: dict[tuple[str, str], str] = {}
+    connection_index: dict[tuple[str, str], int] = {}
+
+    for idx, (raw_from, raw_to, outcome) in enumerate(connections or []):
+        from_ref = _canonical_layout_ref(raw_from)
+        to_ref = _canonical_layout_ref(raw_to)
+        if to_ref not in step_set:
+            continue
+        if from_ref in step_set or from_ref == "start":
+            if from_ref not in children:
+                children[from_ref] = []
+            if to_ref not in children[from_ref]:
+                children[from_ref].append(to_ref)
+            if from_ref not in parents[to_ref]:
+                parents[to_ref].append(from_ref)
+            edge_labels[(from_ref, to_ref)] = str(outcome or "")
+            connection_index[(from_ref, to_ref)] = idx
+
+    for ref in ordered_refs:
+        children.setdefault(ref, [])
+
+    def ordered_children(ref: str) -> list[str]:
+        refs = children.get(ref, [])
+        return sorted(
+            refs,
+            key=lambda child: (
+                _semantic_branch_weight(edge_labels.get((ref, child), "")),
+                connection_index.get((ref, child), 10_000),
+            ),
+        )
+
+    indegree = {ref: 0 for ref in ordered_refs}
+    for from_ref, to_refs in children.items():
+        if from_ref not in step_set:
+            continue
+        for to_ref in to_refs:
+            if to_ref in indegree:
+                indegree[to_ref] += 1
+
+    queue = [ref for ref in ordered_refs if indegree[ref] == 0]
+    topo: list[str] = []
+    while queue:
+        ref = queue.pop(0)
+        topo.append(ref)
+        for child in children.get(ref, []):
+            if child not in indegree:
+                continue
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                queue.append(child)
+    topo.extend(ref for ref in ordered_refs if ref not in topo)
+
+    y_by_ref: dict[str, float] = {"start": start_y}
+    for ref in topo:
+        parent_ys = [
+            y_by_ref[parent]
+            for parent in parents.get(ref, [])
+            if parent in y_by_ref
+        ]
+        if parent_ys:
+            y_by_ref[ref] = max(parent_ys) + STEP_Y
+        else:
+            y_by_ref[ref] = max_existing_y + STEP_Y
+
+    width_cache: dict[tuple[str, bool], float] = {}
+
+    def subtree_width(ref: str, *, through_parent: bool = False, visiting: set[str] | None = None) -> float:
+        cache_key = (ref, through_parent)
+        if cache_key in width_cache:
+            return width_cache[cache_key]
+        if through_parent and len(parents.get(ref, [])) > 1:
+            width_cache[cache_key] = 1.0
+            return 1.0
+        visiting = set(visiting or set())
+        if ref in visiting:
+            return 1.0
+        visiting.add(ref)
+        child_widths = [
+            subtree_width(child, through_parent=True, visiting=visiting)
+            for child in ordered_children(ref)
+            if child in step_set
+        ]
+        width = max(1.0, sum(child_widths) if child_widths else 1.0)
+        width_cache[cache_key] = width
+        return width
+
+    lane_by_ref: dict[str, float] = {}
+
+    def assign_children(ref: str, center_lane: float) -> None:
+        child_refs = [child for child in ordered_children(ref) if child in step_set]
+        if not child_refs:
+            return
+        total_width = sum(subtree_width(child, through_parent=True) for child in child_refs)
+        cursor = center_lane - (total_width - 1.0) / 2.0
+        for child in child_refs:
+            child_width = subtree_width(child, through_parent=True)
+            child_center = cursor + (child_width - 1.0) / 2.0
+            if len(parents.get(child, [])) <= 1:
+                assign_subtree(child, child_center)
+            cursor += child_width
+
+    def assign_subtree(ref: str, center_lane: float) -> None:
+        if ref in lane_by_ref:
+            return
+        lane_by_ref[ref] = center_lane
+        assign_children(ref, center_lane)
+
+    root_refs = []
+    for child in ordered_children("start"):
+        if child in step_set and child not in root_refs:
+            root_refs.append(child)
+    for ref in ordered_refs:
+        if not parents.get(ref) and ref not in root_refs:
+            root_refs.append(ref)
+
+    total_root_width = sum(subtree_width(ref) for ref in root_refs) if root_refs else 1.0
+    cursor = 0.0 - (total_root_width - 1.0) / 2.0
+    for ref in root_refs:
+        width = subtree_width(ref)
+        assign_subtree(ref, cursor + (width - 1.0) / 2.0)
+        cursor += width
+
+    for ref in topo:
+        parent_lanes = [lane_by_ref[parent] for parent in parents.get(ref, []) if parent in lane_by_ref]
+        if len(parent_lanes) > 1:
+            lane_by_ref[ref] = sum(parent_lanes) / len(parent_lanes)
+            assign_children(ref, lane_by_ref[ref])
+        elif ref not in lane_by_ref:
+            lane_by_ref[ref] = max(lane_by_ref.values(), default=0.0) + 1.0
+            assign_children(ref, lane_by_ref[ref])
+
+    raw_positions = {
+        ref: {
+            "x": start_x + lane_by_ref.get(ref, 0.0) * BRANCH_X,
+            "y": y_by_ref.get(ref, max_existing_y + STEP_Y),
+        }
+        for ref in ordered_refs
+    }
+
+    placed = list(elements)
+    final_positions: dict[str, dict] = {}
+    for ref in sorted(ordered_refs, key=lambda item: (raw_positions[item]["y"], raw_positions[item]["x"])):
+        x = raw_positions[ref]["x"]
+        y = raw_positions[ref]["y"]
+        while _overlaps(placed, x, y):
+            x += BRANCH_X
+        pos = {"x": round(x, 1), "y": round(y, 1)}
+        final_positions[ref] = pos
+        placed.append({
+            "element_id": f"layout:{ref}",
+            "position": pos,
+            "measured": DEFAULT_ELEMENT_SIZE,
+        })
+
+    return final_positions
 
 
 # --------------------------------------------------------------------------

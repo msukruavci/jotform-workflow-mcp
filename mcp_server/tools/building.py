@@ -649,8 +649,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "Before calling create_workflow, decide the form strategy "
                 "with the user: existing form or new AI-created form. For an "
                 "existing form, call list_forms first and use the selected id "
-                "here. For a new form, use create_workflow_with_ai_form "
-                "instead of this tool. Binding takes two API calls under the "
+                "here. For a complete new workflow, prefer build_workflow_bulk "
+                "with form_prompt/title instead of this low-level tool. "
+                "Binding takes two API calls under the "
                 "hood and is verified by reading the start point back."
             )
         )] = "",
@@ -665,14 +666,15 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> CreateWorkflowResult:
         """
-        Create a new workflow with a trigger form.
+        Low-level helper to create a new workflow with a trigger form.
 
-        Before using this tool in a new-workflow conversation, first ask the
-        user how the workflow should be triggered:
+        For ordinary new-workflow requests, prefer build_workflow_bulk with
+        title/form_prompt or title/trigger_form_id so creation and step wiring
+        happen in one tool call. Use this tool only for manual/partial setup.
 
         1. Use an existing form — then call list_forms and pass the chosen
            form id as trigger_form_id.
-        2. Create a new form first — use create_workflow_with_ai_form instead.
+        2. Create a new form first — prefer build_workflow_bulk with form_prompt.
         3. No trigger form yet — only proceed with allow_without_trigger=true
            if the user explicitly asks for a draft workflow without one.
 
@@ -734,10 +736,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> CreateWorkflowWithAIFormResult:
         """
-        Create a new AI-generated form, then create a workflow triggered by it.
+        Low-level helper to create a new AI-generated form, then a workflow triggered by it.
 
-        ALWAYS use build_workflow_bulk immediately after to add all steps and
-        connections in one atomic shot. DO NOT call add_step or connect_steps in a loop.
+        For complete new workflows, prefer a single build_workflow_bulk call
+        with title, form_prompt, steps, and connections. Use this helper only
+        when the user explicitly wants form/workflow creation without steps yet.
         """
         try:
             form_content = client.create_form_with_ai(
@@ -795,7 +798,13 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
     @mcp.tool()
     def build_workflow_bulk(
-        workflow_id: Annotated[str, Field(description="From list_workflows or create_workflow.")],
+        workflow_id: Annotated[str, Field(
+            description=(
+                "Optional. ID of an existing workflow to add steps to. If omitted, "
+                "a new workflow is created automatically using title/form_prompt."
+            )
+        )] = "",
+        *,
         steps: Annotated[list[StepSpec], Field(
             description=(
                 "List of steps to create. Each step has a unique 'ref' name (e.g. 'approval_1', 'notify_mgr', 'reject_email'), "
@@ -810,16 +819,38 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "(e.g. 'Approve', 'Deny', 'TRUE', 'FALSE', or branch name)."
             )
         )] = [],
+        title: Annotated[str, Field(
+            description="Optional. Name of the workflow when creating a new one."
+        )] = "",
+        trigger_form_id: Annotated[str, Field(
+            description="Optional. Existing form ID to bind as trigger form when creating a new workflow."
+        )] = "",
+        form_prompt: Annotated[str, Field(
+            description="Optional. Natural language description to automatically generate an AI trigger form for this workflow."
+        )] = "",
+        form_language: Annotated[str, Field(
+            description='Form language for AI trigger form generation. Use "tr" for Turkish, otherwise "en".'
+        )] = "en",
         intent: Annotated[str, INTENT_FIELD] = "",
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> BuildWorkflowBulkResult:
         """
-        Build an entire workflow graph (all steps and connections) in a single atomic bulk operation.
+        Primary tool for building workflows in one bulk operation.
 
-        Use this tool when creating a workflow rather than making repeated round-trip calls to add_step and connect_steps.
+        Use this tool for both:
+        - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.
+        - Adding a complete graph of steps and connections to an existing workflow_id.
+
+        Prefer this over create_workflow_with_ai_form followed by another bulk call for new workflows.
         All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.
         Use 'start' or '1' as from_ref to connect from the trigger form.
         """
+        workflow_id = str(workflow_id or "").strip()
+        title = str(title or "").strip()
+        trigger_form_id = str(trigger_form_id or "").strip()
+        form_prompt = str(form_prompt or "").strip()
+        form_language = str(form_language or "en").strip() or "en"
+
         if not steps:
             return BuildWorkflowBulkResult(error="No steps provided to build_workflow_bulk.")
 
@@ -879,22 +910,135 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     hint="Ask for or provide the essentials (assignee/approver/subject/body/outcomes) before bulk creation."
                 )
 
+            clean_configs[s_ref] = clean_cfg
+
+        created_trigger_form_id: str | None = None
+        if not workflow_id:
+            if not (title or trigger_form_id or form_prompt):
+                return BuildWorkflowBulkResult(
+                    warnings=warnings,
+                    error=(
+                        "workflow_id is required for existing workflows. To create "
+                        "a workflow from scratch, provide title and either form_prompt "
+                        "or trigger_form_id."
+                    ),
+                    hint="Pass workflow_id, or call build_workflow_bulk with title + form_prompt.",
+                )
+
+            form_content: dict = {}
+            if form_prompt:
+                try:
+                    form_content = client.create_form_with_ai(
+                        form_prompt, language=form_language
+                    )
+                except JotformAPIError as e:
+                    return BuildWorkflowBulkResult(
+                        warnings=warnings,
+                        error=f"Creating AI form failed: {e}",
+                    )
+
+                created_trigger_form_id = _extract_ai_form_id(form_content)
+                if not created_trigger_form_id:
+                    return BuildWorkflowBulkResult(
+                        warnings=warnings,
+                        error=f"No form id in AI form response: {form_content!r}",
+                    )
+                trigger_form_id = created_trigger_form_id
+
+                questions = form_content.get("questions") if isinstance(form_content.get("questions"), dict) else {}
+                form_title = (questions.get("1") or {}).get("text") if isinstance(questions.get("1"), dict) else None
+                if not title:
+                    title = form_title or "Untitled Workflow"
+            elif trigger_form_id:
+                created_trigger_form_id = trigger_form_id
+
+            if not title:
+                title = "Untitled Workflow"
+
+            try:
+                created = client.create_workflow(title)
+            except JotformAPIError as e:
+                return BuildWorkflowBulkResult(
+                    trigger_form_id=trigger_form_id or None,
+                    trigger_form_url=_form_url(trigger_form_id or None),
+                    warnings=warnings,
+                    error=f"Workflow creation failed: {e}",
+                )
+
+            workflow_id = str(created.get("id") or created.get("workflowID") or "")
+            if not workflow_id:
+                return BuildWorkflowBulkResult(
+                    trigger_form_id=trigger_form_id or None,
+                    trigger_form_url=_form_url(trigger_form_id or None),
+                    warnings=warnings,
+                    error=f"No workflow id in response: {created!r}",
+                )
+
+            if trigger_form_id:
+                bind_error = _bind_and_verify_trigger(client, workflow_id, trigger_form_id, title)
+                if bind_error is not None:
+                    return BuildWorkflowBulkResult(
+                        workflow_id=bind_error.workflow_id,
+                        workflow_url=bind_error.workflow_url,
+                        trigger_form_id=bind_error.trigger_form_id,
+                        trigger_form_url=bind_error.trigger_form_url,
+                        warnings=warnings,
+                        error=bind_error.error,
+                    )
+        elif trigger_form_id:
+            created_trigger_form_id = trigger_form_id
+            bind_error = _bind_and_verify_trigger(client, workflow_id, trigger_form_id, title or workflow_id)
+            if bind_error is not None:
+                return BuildWorkflowBulkResult(
+                    workflow_id=bind_error.workflow_id,
+                    workflow_url=bind_error.workflow_url,
+                    trigger_form_id=bind_error.trigger_form_id,
+                    trigger_form_url=bind_error.trigger_form_url,
+                    warnings=warnings,
+                    error=bind_error.error,
+                )
+
+        for s_ref, s_type, _ in step_items:
+            clean_cfg = clean_configs[s_ref]
+
             field_error, field_hint = _invalid_condition_field_message(client, workflow_id, s_type, clean_cfg)
             if field_error:
-                return BuildWorkflowBulkResult(warnings=warnings, error=f"Step '{s_ref}': {field_error}", hint=field_hint)
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    trigger_form_id=created_trigger_form_id,
+                    trigger_form_url=_form_url(created_trigger_form_id),
+                    warnings=warnings,
+                    error=f"Step '{s_ref}': {field_error}",
+                    hint=field_hint,
+                )
 
             assignee_fields = ASSIGNEE_FIELDS_BY_STEP_TYPE.get(s_type, ())
             if assignee_fields:
                 clean_cfg, assignee_hint, assignee_error = _normalize_assignee_fields(client, workflow_id, clean_cfg, assignee_fields)
                 if assignee_error:
-                    return BuildWorkflowBulkResult(warnings=warnings, error=f"Step '{s_ref}': {assignee_error}")
+                    return BuildWorkflowBulkResult(
+                        workflow_id=workflow_id,
+                        workflow_url=_workflow_url(workflow_id),
+                        trigger_form_id=created_trigger_form_id,
+                        trigger_form_url=_form_url(created_trigger_form_id),
+                        warnings=warnings,
+                        error=f"Step '{s_ref}': {assignee_error}",
+                    )
                 if assignee_hint:
                     warnings.append(f"[{s_ref}] {assignee_hint}")
 
             if s_type in ("workflow_send_email", "workflow_reminder_email"):
                 clean_cfg, recipient_hint, recipient_error = _normalize_email_config(client, workflow_id, clean_cfg)
                 if recipient_error:
-                    return BuildWorkflowBulkResult(warnings=warnings, error=f"Step '{s_ref}': {recipient_error}")
+                    return BuildWorkflowBulkResult(
+                        workflow_id=workflow_id,
+                        workflow_url=_workflow_url(workflow_id),
+                        trigger_form_id=created_trigger_form_id,
+                        trigger_form_url=_form_url(created_trigger_form_id),
+                        warnings=warnings,
+                        error=f"Step '{s_ref}': {recipient_error}",
+                    )
                 if recipient_hint:
                     warnings.append(f"[{s_ref}] {recipient_hint}")
 
@@ -905,7 +1049,14 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             existing_elements = client.get_elements(workflow_id)
             existing_links = client.get_links(workflow_id)
         except JotformAPIError as e:
-            return BuildWorkflowBulkResult(error=str(e))
+            return BuildWorkflowBulkResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                trigger_form_id=created_trigger_form_id,
+                trigger_form_url=_form_url(created_trigger_form_id),
+                error=str(e),
+                warnings=warnings,
+            )
 
         start_elem = next((e for e in existing_elements if e.get("type") == "workflow_start_point"), None)
         start_id = start_elem.get("element_id") if start_elem else 1
@@ -926,45 +1077,27 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         element_creates: list[dict] = []
         created_data_by_id: dict[int | str, dict] = {}
 
-        outgoing_counts: dict[str, int] = {}
-        for c_from, _, _ in conn_items:
-            outgoing_counts[c_from] = outgoing_counts.get(c_from, 0) + 1
-
-        outgoing_index: dict[str, int] = {}
+        layout_positions = tb.compute_layered_dag_positions(
+            all_elements,
+            [s_ref for s_ref, _, _ in step_items],
+            conn_items,
+            start_step_id=start_id,
+        )
 
         for s_ref, s_type, _ in step_items:
             eid = ref_to_id[s_ref]
             cfg = clean_configs[s_ref]
 
-            incoming_parents = [c[0] for c in conn_items if c[1] == s_ref]
-            if len(incoming_parents) > 1:
-                # Multi-parent merge/join node: center horizontally between all incoming parents
-                parent_ids = [ref_to_id.get(p) for p in incoming_parents if ref_to_id.get(p) is not None]
-                pos = tb.compute_position(all_elements, parent_ids, branch_offset=0.0)
-            elif len(incoming_parents) == 1:
-                p_from = incoming_parents[0]
-                parent_id = ref_to_id.get(p_from)
-                matching_conns = [c for c in conn_items if c[0] == p_from]
-                conn_to_this = next((c for c in matching_conns if c[1] == s_ref), None)
-                outcome_str = (conn_to_this[2] if conn_to_this else "").strip().lower()
-
-                total_out = len(matching_conns)
-                idx_out = [c[1] for c in matching_conns].index(s_ref) if conn_to_this else 0
-
-                branch_offset = 0.0
-                if total_out == 2:
-                    if any(k in outcome_str for k in ("approve", "true", "provisioned", "yes", "success", "resolved")):
-                        branch_offset = -0.7
-                    elif any(k in outcome_str for k in ("reject", "deny", "false", "unable", "no", "cancel", "fail", "other")):
-                        branch_offset = +0.7
-                    else:
-                        branch_offset = (idx_out - 0.5) * 1.3
-                elif total_out > 2:
-                    branch_offset = (idx_out - (total_out - 1) / 2.0) * 1.25
-
-                pos = tb.compute_position(all_elements, parent_id, branch_offset=branch_offset)
-            else:
-                pos = tb.compute_position(all_elements, None)
+            pos = layout_positions.get(s_ref)
+            if pos is None:
+                incoming_parents = [c[0] for c in conn_items if c[1] == s_ref]
+                if len(incoming_parents) > 1:
+                    parent_ids = [ref_to_id.get(p) for p in incoming_parents if ref_to_id.get(p) is not None]
+                    pos = tb.compute_position(all_elements, parent_ids, branch_offset=0.0)
+                elif len(incoming_parents) == 1:
+                    pos = tb.compute_position(all_elements, ref_to_id.get(incoming_parents[0]))
+                else:
+                    pos = tb.compute_position(all_elements, None)
 
             elem_create = tb.build_element_create(s_type, eid, cfg, pos)
             element_creates.append(elem_create)
@@ -1057,11 +1190,20 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 links=link_creates,
             )
         except JotformAPIError as e:
-            return BuildWorkflowBulkResult(error=str(e), warnings=warnings)
+            return BuildWorkflowBulkResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                trigger_form_id=created_trigger_form_id,
+                trigger_form_url=_form_url(created_trigger_form_id),
+                error=str(e),
+                warnings=warnings,
+            )
 
         return BuildWorkflowBulkResult(
             workflow_id=workflow_id,
             workflow_url=_workflow_url(workflow_id),
+            trigger_form_id=created_trigger_form_id,
+            trigger_form_url=_form_url(created_trigger_form_id),
             created_steps={s_ref: str(ref_to_id[s_ref]) for s_ref, _, _ in step_items},
             created_links_count=len(link_creates),
             warnings=warnings,

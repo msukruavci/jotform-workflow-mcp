@@ -73,6 +73,66 @@ def test_position_branch_offset_uses_stable_column():
     assert pos == {"x": 100 - tb.BRANCH_X * 0.5, "y": 100 + tb.STEP_Y}
 
 
+def test_layered_dag_layout_expands_nested_branch_lanes():
+    elements = [{"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}}]
+    positions = tb.compute_layered_dag_positions(
+        elements,
+        ["approval", "task", "denied_email", "success_email", "failure_email"],
+        [
+            ("start", "approval", ""),
+            ("approval", "task", "Approve"),
+            ("approval", "denied_email", "Deny"),
+            ("task", "success_email", "Provisioned"),
+            ("task", "failure_email", "Unable to Provision"),
+        ],
+    )
+
+    assert positions["approval"]["y"] == tb.STEP_Y
+    assert positions["task"]["y"] == positions["denied_email"]["y"] == tb.STEP_Y * 2
+    assert positions["success_email"]["y"] == positions["failure_email"]["y"] == tb.STEP_Y * 3
+    assert positions["task"]["x"] < positions["denied_email"]["x"]
+    assert positions["success_email"]["x"] < positions["failure_email"]["x"]
+    assert positions["failure_email"]["x"] <= positions["denied_email"]["x"] - tb.BRANCH_X
+
+
+def test_layered_dag_layout_centers_merge_below_lowest_parent():
+    elements = [{"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}}]
+    positions = tb.compute_layered_dag_positions(
+        elements,
+        ["approval", "approved_email", "denied_email", "final_email"],
+        [
+            ("start", "approval", ""),
+            ("approval", "approved_email", "Approve"),
+            ("approval", "denied_email", "Deny"),
+            ("approved_email", "final_email", ""),
+            ("denied_email", "final_email", ""),
+        ],
+    )
+
+    parent_center = (positions["approved_email"]["x"] + positions["denied_email"]["x"]) / 2
+    lowest_parent_y = max(positions["approved_email"]["y"], positions["denied_email"]["y"])
+    assert positions["final_email"]["x"] == parent_center
+    assert positions["final_email"]["y"] == lowest_parent_y + tb.STEP_Y
+
+
+def test_layered_dag_layout_distributes_n_way_branch_symmetrically():
+    elements = [{"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}}]
+    positions = tb.compute_layered_dag_positions(
+        elements,
+        ["branch", "low", "medium", "high"],
+        [
+            ("start", "branch", ""),
+            ("branch", "low", "Low"),
+            ("branch", "medium", "Medium"),
+            ("branch", "high", "High"),
+        ],
+    )
+
+    child_xs = [positions["low"]["x"], positions["medium"]["x"], positions["high"]["x"]]
+    assert child_xs == [-tb.BRANCH_X, 0, tb.BRANCH_X]
+    assert all(positions[ref]["y"] == tb.STEP_Y * 2 for ref in ("low", "medium", "high"))
+
+
 # --- config validation ----------------------------------------------------
 
 def test_validate_config_keeps_known_fields():

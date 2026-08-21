@@ -400,6 +400,8 @@ class ConnectionSpec(BaseModel):
 class BuildWorkflowBulkResult(BaseModel):
     workflow_id: str | None = None
     workflow_url: str | None = None
+    trigger_form_id: str | None = None
+    trigger_form_url: str | None = None
     created_steps: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping from step ref to created Jotform step_id"
