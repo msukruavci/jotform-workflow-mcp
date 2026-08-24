@@ -13,8 +13,14 @@ from mcp_server.jotform_client import JotformClient
 from mcp_server.models import WorkflowListUIResult, WorkflowPreviewUIResult
 from mcp_server.tools.reading import read_workflow_list, read_workflow_preview
 
-WORKFLOW_UI_RESOURCE_URI = "ui://jotform/workflows/v7.html"
-WORKFLOW_UI_LEGACY_RESOURCE_URIS: tuple[str, ...] = ()
+WORKFLOW_UI_RESOURCE_URI = "ui://jotform/workflows/v34.html"
+WORKFLOW_UI_LEGACY_RESOURCE_URIS: tuple[str, ...] = tuple(
+    f"ui://jotform/workflows/v{i}.html" for i in range(1, 29)
+) + (
+    "ui://jotform/workflows/v31.html",
+    "ui://jotform/workflows/v32.html",
+    "ui://jotform/workflows/v33.html",
+)
 LOGGER = logging.getLogger(__name__)
 
 _FALLBACK_HTML = """<!doctype html>
@@ -60,6 +66,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
     """Create the UI extension before it is attached to the MCP server."""
     apps = Apps()
     resource_html = html if html is not None else load_workflow_ui_html()
+
     for resource_uri in (*WORKFLOW_UI_LEGACY_RESOURCE_URIS, WORKFLOW_UI_RESOURCE_URI):
         apps.add_html_resource(
             resource_uri,
@@ -67,7 +74,6 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             name="Jotform Workflow UI",
             title="Jotform Workflows",
             description="Read-only workflow list and verified workflow graph preview.",
-            domain="jotform.com",
             csp=ResourceCsp(
                 connect_domains=["https://api.jotform.com", "https://*.jotform.com"],
                 resource_domains=["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
@@ -84,6 +90,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
 
     @apps.tool(
         resource_uri=WORKFLOW_UI_RESOURCE_URI,
+        title="Jotform Workflows",
         meta={
             **compatibility_meta,
             "openai/toolInvocation/invoking": "Loading workflows…",
@@ -102,6 +109,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
 
     @apps.tool(
         resource_uri=WORKFLOW_UI_RESOURCE_URI,
+        title="Jotform Workflow",
         meta={
             **compatibility_meta,
             "openai/toolInvocation/invoking": "Loading workflow…",
