@@ -873,6 +873,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         # 2. Check connections validity
         conn_items: list[tuple[str, str, str]] = []
+        connected_refs: set[str] = set()
         for c in connections or []:
             c_from = str(getattr(c, "from_ref", None) or (c.get("from_ref") if isinstance(c, dict) else "") or "").strip()
             c_to = str(getattr(c, "to_ref", None) or (c.get("to_ref") if isinstance(c, dict) else "") or "").strip()
@@ -886,6 +887,22 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     error=f"Connection to_ref '{c_to}' is invalid. Must be one of: {list(seen_refs)}."
                 )
             conn_items.append((c_from, c_to, c_outcome))
+            if c_from in seen_refs:
+                connected_refs.add(c_from)
+            connected_refs.add(c_to)
+
+        unconnected_refs = [s_ref for s_ref, _, _ in step_items if s_ref not in connected_refs]
+        if unconnected_refs:
+            return BuildWorkflowBulkResult(
+                error=(
+                    "Every new step must be connected before build_workflow_bulk writes to Jotform. "
+                    f"Unconnected step refs: {unconnected_refs}."
+                ),
+                hint=(
+                    "Remove the unused steps or add connections that include each ref as from_ref or to_ref. "
+                    "For example, connect email steps to an end step, and do not create extra end steps."
+                ),
+            )
 
         warnings: list[str] = []
         clean_configs: dict[str, dict] = {}

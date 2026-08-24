@@ -40,6 +40,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from mcp_server.server import mcp  # noqa: E402
+from agent.tool_profiles import current_profile, filter_tools  # noqa: E402
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 MAX_TURNS = 20  # a runaway loop burns real API credit and real Jotform writes
@@ -137,7 +138,7 @@ async def build_tool_declarations() -> list[dict]:
             "description": (t.description or "").strip(),
             "parameters": _to_gemini_schema(t.input_schema),
         }
-        for t in await mcp.list_tools()
+        for t in filter_tools(await mcp.list_tools())
     ]
 
 
@@ -329,7 +330,7 @@ async def main() -> int:
 
     client = genai.Client()
     tools = await build_tool_declarations()
-    print(f"{len(tools)} tools loaded, model={MODEL}\n")
+    print(f"{len(tools)} tools loaded, profile={current_profile()}, model={MODEL}\n")
 
     previous_id: str | None = None
 

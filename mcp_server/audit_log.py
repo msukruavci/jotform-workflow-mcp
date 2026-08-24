@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp_server.tool_profiles import current_profile, filter_tools
 
 SESSION_ID = os.environ.get("MCP_AUDIT_SESSION_ID") or uuid.uuid4().hex
 SESSION_STARTED_AT = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -117,7 +118,7 @@ class AuditedMCPServer(MCPServer):
         started = time.perf_counter()
         write_event("mcp.list_tools.started", request_id=request_id)
         try:
-            tools = await super().list_tools()
+            tools = filter_tools(await super().list_tools())
         except Exception as exc:
             write_event(
                 "mcp.list_tools.failed",
@@ -131,6 +132,7 @@ class AuditedMCPServer(MCPServer):
             "mcp.list_tools.completed",
             request_id=request_id,
             duration_ms=round((time.perf_counter() - started) * 1000, 1),
+            tool_profile=current_profile(),
             tool_count=len(tools),
             tools=[tool.name for tool in tools],
         )

@@ -410,6 +410,27 @@ def test_build_workflow_bulk_invalid_connection_ref_rejected():
     assert "Connection from_ref 'non_existent' is invalid" in result.error
 
 
+def test_build_workflow_bulk_unconnected_new_step_rejected_before_writing():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(ref="mail", type="workflow_send_email", config={"to": "a@b.com", "subject": "S", "content": "C"}),
+        StepSpec(ref="unused_end", type="workflow_end_point", config={"name": "Unused"}),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="start", to_ref="mail"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error
+    assert "Unconnected step refs" in result.error
+    assert "unused_end" in result.error
+    assert client.update_calls == []
+
+
 def test_build_workflow_bulk_missing_outcome_on_branching_rejected():
     mcp = DummyMCP()
     client = DummyClient()

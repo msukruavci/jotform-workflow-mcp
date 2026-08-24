@@ -33,6 +33,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from mcp_server.server import mcp  # noqa: E402
+from agent.tool_profiles import current_profile, filter_tools  # noqa: E402
 
 # claude-sonnet-5 is the current default per Anthropic's own model
 # lineup as of 2026-08 (introductory pricing through 2026-08-31). An
@@ -52,7 +53,7 @@ async def build_tool_definitions() -> list[dict]:
             "description": (t.description or "").strip(),
             "input_schema": t.input_schema,
         }
-        for t in await mcp.list_tools()
+        for t in filter_tools(await mcp.list_tools())
     ]
 
 
@@ -168,7 +169,7 @@ async def main() -> int:
 
     client = Anthropic()
     tools = await build_tool_definitions()
-    print(f"{len(tools)} tools loaded, model={MODEL}\n")
+    print(f"{len(tools)} tools loaded, profile={current_profile()}, model={MODEL}\n")
 
     messages: list[dict] = []
 

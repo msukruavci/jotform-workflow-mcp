@@ -35,6 +35,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from agent import cost, logging_  # noqa: E402
+from agent.tool_profiles import current_profile, filter_tools  # noqa: E402
 from mcp_server.server import mcp  # noqa: E402
 
 
@@ -114,8 +115,11 @@ async def main() -> int:
         return 0
 
     session_id = str(uuid.uuid4())[:8]
-    tool_count = len(await mcp.list_tools())
-    print(f"provider={args.provider}  session={session_id}  tools={tool_count}")
+    tool_count = len(filter_tools(await mcp.list_tools()))
+    print(
+        f"provider={args.provider}  session={session_id}  "
+        f"profile={current_profile()}  tools={tool_count}"
+    )
     print(f"logging to {logging_.LOG_PATH}\n")
 
     anthropic_messages: list[dict] = []
