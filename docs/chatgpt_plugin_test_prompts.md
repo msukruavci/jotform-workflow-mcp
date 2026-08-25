@@ -30,7 +30,7 @@ Create a new form. Keep it in English. The form should collect candidate applica
 
 Expected behavior:
 
-- It should use `create_workflow_with_ai_form`.
+- It should use `build_workflow_bulk` with `form_prompt`.
 - The response should include direct links:
   - `https://www.jotform.com/workflow/{workflow_id}/build`
   - `https://www.jotform.com/build/{form_id}`
@@ -54,7 +54,7 @@ Assign the task to hiring.manager@example.com. They should review the candidate 
 
 Expected behavior:
 
-- It should create a `workflow_assign_task` step with `add_step`.
+- It should create the `workflow_assign_task` step through `build_workflow_bulk`.
 - If needed, it should read back the workflow and report the step ID and connection state.
 - A revision should be saved automatically before the write.
 
@@ -90,8 +90,8 @@ If the candidate date of birth starts with 2006-08-07, send it to the Rejected A
 Expected behavior:
 
 - It should not write `field: "Date of birth"` as plain text.
-- It should call `get_form_fields` or `inspect_workflow_gaps`.
-- It should resolve the real field ID from the trigger form or ask which field to use.
+- It should use `trigger_form_fields` from `get_workflow` / `build_workflow_bulk`.
+- It should resolve the real field ID from the trigger form fields or ask which field to use.
 
 ## Test 8 - Conditional Branch With A Real Field
 
@@ -141,7 +141,7 @@ Expected behavior:
 - It should create a separate email step for the rejected branch.
 - It should connect it to the correct outcome.
 
-## Test 12 - Gap Inspection
+## Test 12 - Workflow Health Readback
 
 ```text
 Is this workflow ready? Check for missing links, empty assignees, empty conditions, unconnected outcomes, or invalid fields.
@@ -149,7 +149,7 @@ Is this workflow ready? Check for missing links, empty assignees, empty conditio
 
 Expected behavior:
 
-- It should call `inspect_workflow_gaps`.
+- It should call `get_workflow` and use the returned `health` object.
 - If there are issues, it should list them clearly.
 - If details are missing, it should ask one short question about how to complete them.
 - If there are no blocking issues, it should say the workflow is ready and include the workflow URL.
@@ -185,7 +185,7 @@ Change the task description to: Review the candidate profile and decide whether 
 
 Expected behavior:
 
-- A revision should be saved automatically before `update_step`.
+- A revision should be saved automatically before the bulk write.
 - It should read back the result afterward.
 
 ## Test 16 - Preview Restore To Previous Revision
@@ -210,9 +210,9 @@ Expected behavior:
 
 - It should call `restore_workflow_revision` with `confirm=true`.
 - It should save the current workflow as a backup revision before restoring.
-- It should verify afterward with `get_workflow` or `inspect_workflow_gaps`.
+- It should verify afterward with `get_workflow`.
 
-## Test 18 - Publish Safety Preview
+## Test 18 - Publish Workflow
 
 ```text
 Publish the workflow.
@@ -220,22 +220,12 @@ Publish the workflow.
 
 Expected behavior:
 
-- It should not publish immediately.
-- It should first use `inspect_workflow_gaps` and/or `publish_workflow(confirm=false)` to show a preview.
-- It should ask for explicit confirmation.
-
-## Test 19 - Confirm Publish
-
-```text
-I confirm. Publish it.
-```
-
-Expected behavior:
-
-- It should call `publish_workflow(confirm=true)`.
+- It should call `get_workflow` if it needs a final health read.
+- It should call `publish_workflow` once; no confirm flag is needed.
+- It should report any `health_warnings`.
 - It should include the workflow URL in the response.
 
-## Test 20 - Audit Log Check
+## Test 19 - Audit Log Check
 
 ```text
 Did you log the tool calls and Jotform requests from this session? Tell me where the log file is.

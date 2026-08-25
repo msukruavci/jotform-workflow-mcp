@@ -241,6 +241,25 @@ def test_normalize_email_config_matches_builder_email_save_shape():
     assert normalized["isDirty"] == "Yes"
 
 
+def test_normalize_email_config_wraps_html_fragment_without_escaping_tags():
+    client = DummyClient()
+
+    normalized, hint, error = building._normalize_email_config(
+        client,
+        "wf_1",
+        {
+            "to": [{"text": "Email Address", "id": "3"}],
+            "subject": "Application update",
+            "content": "<p>Merhaba {2}</p><p>Süreç tamamlandı.</p>",
+        },
+    )
+
+    assert error is None
+    assert "wrapped plain text" in hint
+    assert "<p>Merhaba {q2_fullname0}</p>" in normalized["content"]
+    assert "&lt;p&gt;" not in normalized["content"]
+
+
 def test_normalize_email_config_rewrites_content_field_tokens_to_question_names():
     client = DummyClient()
 
@@ -258,6 +277,41 @@ def test_normalize_email_config_rewrites_content_field_tokens_to_question_names(
     assert "normalized email content field tokens" in hint
     assert "{q2_fullname0}" in normalized["content"]
     assert "{2}" not in normalized["content"]
+
+
+def test_question_id_by_token_prefers_visible_label_when_name_is_generated():
+    questions = {
+        "3": {
+            "qid": "3",
+            "name": "q3_email1",
+            "text": "Yetkili Kişi E-posta Adresi",
+            "type": "control_email",
+        }
+    }
+
+    assert building._question_id_by_token(questions, "yetkili kisi eposta adresi") == "3"
+
+
+def test_question_id_by_token_accepts_unique_email_alias_without_matching_name():
+    questions = {
+        "7": {
+            "qid": "7",
+            "name": "q7_generated",
+            "text": "Kurumsal E-posta Adresi",
+            "type": "control_email",
+        }
+    }
+
+    assert building._question_id_by_token(questions, "email") == "7"
+
+
+def test_question_id_by_token_refuses_ambiguous_field_labels():
+    questions = {
+        "4": {"qid": "4", "name": "q4_email", "text": "Müşteri E-posta Adresi", "type": "control_email"},
+        "5": {"qid": "5", "name": "q5_email", "text": "Yönetici E-posta Adresi", "type": "control_email"},
+    }
+
+    assert building._question_id_by_token(questions, "email") is None
 
 
 def test_normalize_assignee_fields_matches_builder_fixed_email_shape():

@@ -150,6 +150,22 @@ def test_build_workflow_bulk_creates_workflow_with_ai_form_when_workflow_id_omit
     assert result.workflow_url == "https://www.jotform.com/workflow/wf_new_1/build"
     assert result.trigger_form_id == "form_ai_1"
     assert result.trigger_form_url == "https://www.jotform.com/build/form_ai_1"
+    assert [field.model_dump() for field in result.trigger_form_fields] == [
+        {
+            "field_id": "1",
+            "label": "AI Request Form",
+            "type": "control_head",
+            "required": None,
+            "options": [],
+        },
+        {
+            "field_id": "2_email",
+            "label": "Email",
+            "type": "control_email",
+            "required": None,
+            "options": [],
+        },
+    ]
     assert result.created_steps == {"approval_1": "2", "notify_1": "3"}
     assert result.created_links_count == 2
     assert client.created_forms == [{
@@ -160,6 +176,53 @@ def test_build_workflow_bulk_creates_workflow_with_ai_form_when_workflow_id_omit
     assert client.created_workflows == ["Access Request Workflow"]
     assert client.bound_trigger_forms == [("wf_new_1", "form_ai_1")]
     assert client.update_calls[0]["workflow_id"] == "wf_new_1"
+
+
+def test_build_workflow_bulk_normalizes_condition_field_labels_after_ai_form_creation():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(
+            ref="decision_1",
+            type="workflow_binary_decision",
+            config={
+                "name": "Has email?",
+                "conditionTerms": [{
+                    "field": "Email",
+                    "operator": "isFilled",
+                }],
+            },
+        ),
+        StepSpec(
+            ref="notify_1",
+            type="workflow_send_email",
+            config={"to": "user@company.com", "subject": "Ok", "content": "Has email."},
+        ),
+        StepSpec(
+            ref="notify_2",
+            type="workflow_send_email",
+            config={"to": "user@company.com", "subject": "Missing", "content": "Missing email."},
+        ),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="start", to_ref="decision_1"),
+        ConnectionSpec(from_ref="decision_1", to_ref="notify_1", outcome="TRUE"),
+        ConnectionSpec(from_ref="decision_1", to_ref="notify_2", outcome="FALSE"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"](
+        steps=steps,
+        connections=connections,
+        title="Email Check Workflow",
+        form_prompt="Create a form with an Email field.",
+    )
+
+    assert result.error is None
+    decision = client.update_calls[0]["elements"][0]["data"]
+    assert decision["conditionTerms"][0]["field"] == "2_email"
+    assert any("Normalized condition field references" in warning for warning in result.warnings)
 
 
 def test_build_workflow_bulk_creates_workflow_with_existing_trigger_form():
@@ -378,6 +441,7 @@ def test_build_workflow_bulk_empty_steps_rejected():
     result = mcp.tools["build_workflow_bulk"]("wf_1", steps=[], connections=[])
     assert result.error
     assert "No steps provided" in result.error
+    assert "form_prompt as a standalone" in result.error
 
 
 def test_build_workflow_bulk_duplicate_ref_rejected():
@@ -394,6 +458,22 @@ def test_build_workflow_bulk_duplicate_ref_rejected():
     assert "Duplicate step ref" in result.error
 
 
+def test_build_workflow_bulk_numeric_step_ref_rejected():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(ref="8", type="workflow_send_email", config={"to": "a@b.com", "subject": "S", "content": "C"}),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=[])
+
+    assert result.error
+    assert "Numeric refs are reserved for existing Jotform step IDs" in result.error
+    assert client.update_calls == []
+
+
 def test_build_workflow_bulk_invalid_connection_ref_rejected():
     mcp = DummyMCP()
     client = DummyClient()
@@ -408,6 +488,136 @@ def test_build_workflow_bulk_invalid_connection_ref_rejected():
     result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
     assert result.error
     assert "Connection from_ref 'non_existent' is invalid" in result.error
+
+
+def test_build_workflow_bulk_can_insert_after_existing_branch_and_reuse_existing_end():
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.elements = [
+        {
+            "element_id": 1,
+            "type": "workflow_start_point",
+            "position": {"x": 0, "y": 0},
+            "resourceID": "form_1",
+            "resourceType": "FORM",
+        },
+        {
+            "element_id": 4,
+            "type": "workflow_assign_task",
+            "position": {"x": 100, "y": 200},
+            "assignee": "it@company.com",
+            "taskDescription": "Prepare IT equipment and accounts.",
+            "outcomes": [{"outcomeID": 1, "text": "Tamamlandı", "linkID": 10}],
+        },
+        {
+            "element_id": 7,
+            "type": "workflow_end_point",
+            "position": {"x": 100, "y": 400},
+        },
+    ]
+    client.links = [{"link_id": 10, "fromElement": 4, "toElement": 7}]
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(
+            ref="finance_prep",
+            type="workflow_assign_task",
+            config={
+                "assignee": "finance@company.com",
+                "taskDescription": "Prepare payroll and benefits.",
+                "outcomes": ["Tamamlandı"],
+            },
+        ),
+        StepSpec(
+            ref="notify_employee",
+            type="workflow_send_email",
+            config={
+                "to": "{3}",
+                "subject": "Onboarding hazırlıkları tamamlandı",
+                "content": "Onboarding hazırlıklarınız tamamlandı.",
+            },
+        ),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="4", to_ref="finance_prep", outcome="Tamamlandı"),
+        ConnectionSpec(from_ref="finance_prep", to_ref="notify_employee", outcome="Tamamlandı"),
+        ConnectionSpec(from_ref="notify_employee", to_ref="7"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error is None
+    assert result.created_steps == {"finance_prep": "8", "notify_employee": "9"}
+    assert result.created_links_count == 3
+    call = client.update_calls[0]
+    assert {"action": "delete", "linkID": 10, "data": {"link_id": 10}} in call["links"]
+    assert any(link["action"] == "create" and link["data"]["fromElement"] == "4" for link in call["links"])
+    existing_update = next(e for e in call["elements"] if e["action"] == "update" and e["elementID"] == "4")
+    assert existing_update["data"]["outcomes"][0]["linkID"] == 11
+    end_update = next(e for e in call["elements"] if e["action"] == "update" and e["elementID"] == "7")
+    email_create = next(e for e in call["elements"] if e["action"] == "create" and e["elementID"] == 9)
+    assert end_update["data"]["x"] == email_create["data"]["x"]
+    assert end_update["data"]["y"] > email_create["data"]["y"]
+    assert any("Rewired outcome 'Tamamlandı'" in warning for warning in result.warnings)
+
+
+def test_build_workflow_bulk_rejects_missing_existing_numeric_ref_before_writing():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(ref="notify", type="workflow_send_email", config={"to": "a@b.com", "subject": "S", "content": "C"}),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="404", to_ref="notify"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error
+    assert "Connection from_ref '404' does not exist" in result.error
+    assert client.update_calls == []
+
+
+def test_build_workflow_bulk_rejects_duplicate_connection_from_same_existing_outcome():
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.elements = [
+        {
+            "element_id": 1,
+            "type": "workflow_start_point",
+            "position": {"x": 0, "y": 0},
+            "resourceID": "form_1",
+            "resourceType": "FORM",
+        },
+        {
+            "element_id": 4,
+            "type": "workflow_assign_task",
+            "position": {"x": 100, "y": 200},
+            "assignee": "it@company.com",
+            "taskDescription": "Prepare IT equipment.",
+            "outcomes": [{"outcomeID": 1, "text": "Done", "linkID": 3}],
+        },
+        {"element_id": 7, "type": "workflow_end_point", "position": {"x": 100, "y": 400}},
+    ]
+    client.links = [{"link_id": 3, "fromElement": 4, "toElement": 7}]
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(ref="mail_a", type="workflow_send_email", config={"to": "a@b.com", "subject": "A", "content": "A"}),
+        StepSpec(ref="mail_b", type="workflow_send_email", config={"to": "b@b.com", "subject": "B", "content": "B"}),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="4", to_ref="mail_a", outcome="Done"),
+        ConnectionSpec(from_ref="4", to_ref="mail_b", outcome="Done"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error
+    assert "already used in this bulk update" in result.error
+    assert client.update_calls == []
 
 
 def test_build_workflow_bulk_unconnected_new_step_rejected_before_writing():
@@ -446,3 +656,105 @@ def test_build_workflow_bulk_missing_outcome_on_branching_rejected():
     result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
     assert result.error
     assert "branching step and requires an outcome" in result.error
+
+
+def test_build_workflow_bulk_with_delete_step_ids_only():
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.elements = [
+        {"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}},
+        {"element_id": 8, "type": "workflow_assign_task", "name": "Old Task", "position": {"x": 0, "y": 100}},
+        {"element_id": 9, "type": "workflow_send_email", "name": "Old Mail", "position": {"x": 0, "y": 200}},
+        {"element_id": 7, "type": "workflow_end_point", "position": {"x": 0, "y": 300}},
+    ]
+    client.links = [
+        {"link_id": 101, "fromElement": 1, "toElement": 8},
+        {"link_id": 102, "fromElement": 8, "toElement": 9},
+        {"link_id": 103, "fromElement": 9, "toElement": 7},
+    ]
+    building.register(mcp, client)
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", delete_step_ids=["8", "9"])
+
+    assert result.error is None
+    assert result.deleted_steps == ["8", "9"]
+    assert len(client.update_calls) == 1
+    call = client.update_calls[0]
+    assert {"action": "delete", "elementID": "8", "data": {"element_id": "8"}} in call["elements"]
+    assert {"action": "delete", "elementID": "9", "data": {"element_id": "9"}} in call["elements"]
+    assert {"action": "delete", "linkID": 101, "data": {"link_id": 101}} in call["links"]
+    assert {"action": "delete", "linkID": 102, "data": {"link_id": 102}} in call["links"]
+    assert {"action": "delete", "linkID": 103, "data": {"link_id": 103}} in call["links"]
+
+
+def test_build_workflow_bulk_replaces_steps_with_delete_and_create_in_one_shot():
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.elements = [
+        {"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}, "resourceID": "form_1", "resourceType": "FORM"},
+        {
+            "element_id": 4,
+            "type": "workflow_approval",
+            "approver": "boss@co.com",
+            "taskDescription": "Review",
+            "outcomes": [{"outcomeID": 1, "name": "Approve", "linkID": 201}],
+            "position": {"x": 0, "y": 100},
+        },
+        {"element_id": 8, "type": "workflow_send_email", "name": "Old Approve Mail", "position": {"x": -100, "y": 200}},
+        {"element_id": 7, "type": "workflow_end_point", "position": {"x": 0, "y": 300}},
+    ]
+    client.questions = {"3": {"qid": "3", "type": "control_email", "text": "Email"}}
+    client.links = [
+        {"link_id": 200, "fromElement": 1, "toElement": 4},
+        {"link_id": 201, "fromElement": 4, "toElement": 8},
+        {"link_id": 202, "fromElement": 8, "toElement": 7},
+    ]
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(
+            ref="new_mail",
+            type="workflow_send_email",
+            config={"to": "employee@co.com", "subject": "Approved!", "content": "Your request is approved."},
+        ),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="4", to_ref="new_mail", outcome="Approve"),
+        ConnectionSpec(from_ref="new_mail", to_ref="7"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"](
+        "wf_1",
+        delete_step_ids=["8"],
+        steps=steps,
+        connections=connections,
+    )
+
+    assert result.error is None
+    assert result.deleted_steps == ["8"]
+    assert result.created_steps == {"new_mail": "9"}
+    call = client.update_calls[0]
+    # Check element 8 is deleted and new element 9 is created
+    assert {"action": "delete", "elementID": "8", "data": {"element_id": "8"}} in call["elements"]
+    assert any(e.get("action") == "create" and e.get("elementID") == 9 for e in call["elements"])
+    # Check link 201 and 202 are deleted
+    assert {"action": "delete", "linkID": 201, "data": {"link_id": 201}} in call["links"]
+    assert {"action": "delete", "linkID": 202, "data": {"link_id": 202}} in call["links"]
+    # Check new link is created from 4 to 9 with outcome Approve
+    assert any(l.get("action") == "create" and l.get("data", {}).get("fromElement") == "4" for l in call["links"])
+
+
+def test_build_workflow_bulk_rejects_deleting_start_point():
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.elements = [
+        {"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}},
+    ]
+    building.register(mcp, client)
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", delete_step_ids=["1"])
+
+    assert result.error
+    assert "Cannot delete workflow start point" in result.error
+    assert client.update_calls == []
+

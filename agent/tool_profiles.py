@@ -1,13 +1,10 @@
-"""Tool-surface profiles for direct agent runners."""
+"""Single tool surface for direct agent runners."""
 from __future__ import annotations
 
 from typing import Any
 
 from mcp_server.tool_profiles import (  # noqa: F401
     DEFAULT_PROFILE,
-    FAST_TOOL_NAMES,
-    PROFILE_TOOL_NAMES,
-    READ_TOOL_NAMES,
     filter_tools as _filter_tools,
     current_profile as _current_profile,
 )

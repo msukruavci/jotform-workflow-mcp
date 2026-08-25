@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -23,6 +24,12 @@ SESSION_ID = os.environ.get("MCP_AUDIT_SESSION_ID") or uuid.uuid4().hex
 SESSION_STARTED_AT = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 DEFAULT_LOG_DIR = Path(os.environ.get("MCP_AUDIT_LOG_DIR", Path(__file__).parent / "logs"))
 MAX_FIELD_CHARS = int(os.environ.get("MCP_AUDIT_MAX_FIELD_CHARS", "12000"))
+EXPERIMENT_ENV_KEYS = {
+    "experiment_id": "MCP_EXPERIMENT_ID",
+    "experiment_scenario": "MCP_EXPERIMENT_SCENARIO",
+    "experiment_prompt_id": "MCP_EXPERIMENT_PROMPT_ID",
+    "experiment_prompt": "MCP_EXPERIMENT_PROMPT",
+}
 SENSITIVE_KEYS = {
     "apikey",
     "api_key",
@@ -40,6 +47,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _safe_path_segment(value: str) -> str:
+    segment = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip())
+    return segment.strip("-")[:80]
+
+
 def log_path() -> Path:
     """
     Current audit log path.
@@ -51,7 +63,16 @@ def log_path() -> Path:
     override = os.environ.get("MCP_AUDIT_LOG_PATH")
     if override:
         return Path(override)
-    return DEFAULT_LOG_DIR / "sessions" / f"{SESSION_STARTED_AT}_{SESSION_ID}.jsonl"
+    labels = [
+        _safe_path_segment(os.environ[env_key])
+        for env_key in ("MCP_EXPERIMENT_ID", "MCP_EXPERIMENT_SCENARIO", "MCP_EXPERIMENT_PROMPT_ID")
+        if os.environ.get(env_key)
+    ]
+    prefix = "_".join(labels)
+    filename = f"{SESSION_STARTED_AT}_{SESSION_ID}.jsonl"
+    if prefix:
+        filename = f"{prefix}_{filename}"
+    return DEFAULT_LOG_DIR / "sessions" / filename
 
 
 def _redact(value: Any) -> Any:
@@ -100,9 +121,22 @@ def _truncate(value: Any) -> Any:
 
 def write_event(event_type: str, **fields: Any) -> None:
     sanitized_fields = _redact(fields)
+    experiment_fields = {
+        key: os.environ[env_key]
+        for key, env_key in EXPERIMENT_ENV_KEYS.items()
+        if os.environ.get(env_key)
+    }
+    client_fields = {}
+    if os.environ.get("MCP_CLIENT_PROVIDER"):
+        client_fields["provider"] = os.environ["MCP_CLIENT_PROVIDER"]
+    if os.environ.get("MCP_CLIENT_MODEL"):
+        client_fields["model"] = os.environ["MCP_CLIENT_MODEL"]
+
     entry = {
         "timestamp": _now(),
         "session_id": SESSION_ID,
+        **client_fields,
+        **experiment_fields,
         "event_type": event_type,
         **{key: _truncate(value) for key, value in sanitized_fields.items()},
     }
@@ -132,7 +166,7 @@ class AuditedMCPServer(MCPServer):
             "mcp.list_tools.completed",
             request_id=request_id,
             duration_ms=round((time.perf_counter() - started) * 1000, 1),
-            tool_profile=current_profile(),
+            tool_surface=current_profile(),
             tool_count=len(tools),
             tools=[tool.name for tool in tools],
         )

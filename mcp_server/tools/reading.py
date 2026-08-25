@@ -34,7 +34,7 @@ from mcp_server import tree_builder as tb
 from mcp_server.schema_registry import BRANCHING_TYPES
 from mcp_server.jotform_client import JotformClient, JotformAPIError
 from mcp_server.models import (
-    Connection, FormField, FormFieldList, FormList, FormSummary, Step,
+    Connection, FormField, FormList, FormSummary, Step,
     StepDetail, WorkflowDetail, WorkflowHealth, WorkflowList, WorkflowSummary,
     WorkflowGap, WorkflowGapReport, WorkflowRevisionList, WorkflowRevisionSummary,
     WorkflowPreviewData,
@@ -64,6 +64,20 @@ def _field_options(question: dict) -> list[str]:
     if isinstance(options, list):
         return [str(item).strip() for item in options if str(item).strip()]
     return []
+
+
+def form_fields_from_questions(questions: dict | None) -> list[FormField]:
+    return [
+        FormField(
+            field_id=str(qid),
+            label=q.get("text"),
+            type=q.get("type"),
+            required=q.get("required"),
+            options=_field_options(q),
+        )
+        for qid, q in (questions or {}).items()
+        if isinstance(q, dict)
+    ]
 
 
 def _hydrate_elements_for_inspection(client: JotformClient, workflow_id: str, elements: list[dict]) -> list[dict]:
@@ -142,7 +156,12 @@ def read_workflow_list(client: JotformClient) -> WorkflowList:
     ])
 
 
-def _workflow_detail_from_combined(workflow_id: str, combined: dict) -> WorkflowDetail:
+def _workflow_detail_from_combined(
+    workflow_id: str,
+    combined: dict,
+    *,
+    trigger_form_fields: list[FormField] | None = None,
+) -> WorkflowDetail:
     """Build the compact tool view from an already-read Workflow snapshot."""
     wf = combined.get("workflow", {}) or {}
     elements = [el for el in (combined.get("elements") or []) if isinstance(el, dict)]
@@ -197,6 +216,7 @@ def _workflow_detail_from_combined(workflow_id: str, combined: dict) -> Workflow
         publish_status=wf.get("publishStatus"),
         steps=steps,
         connections=connections,
+        trigger_form_fields=trigger_form_fields or [],
         health=WorkflowHealth(
             **health_raw,
             unknown_types=unknown_types,
@@ -219,7 +239,22 @@ def read_workflow_detail(client: JotformClient, workflow_id: str) -> WorkflowDet
             error=str(e),
         )
 
-    return _workflow_detail_from_combined(workflow_id, combined)
+    elements = [el for el in (combined.get("elements") or []) if isinstance(el, dict)]
+    trigger_form_fields: list[FormField] = []
+    trigger_form_id = workflow_inspector.trigger_form_id(elements)
+    if trigger_form_id:
+        try:
+            trigger_form_fields = form_fields_from_questions(
+                client.get_form_questions(trigger_form_id)
+            )
+        except JotformAPIError:
+            trigger_form_fields = []
+
+    return _workflow_detail_from_combined(
+        workflow_id,
+        combined,
+        trigger_form_fields=trigger_form_fields,
+    )
 
 
 def _form_resource_ids(elements: list[dict]) -> set[str]:
@@ -505,33 +540,4 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 submission_count=f.get("count"),
             )
             for f in forms
-        ])
-
-    @mcp.tool()
-    def get_form_fields(
-        form_id: Annotated[str, Field(description="From list_forms.")],
-    ) -> FormFieldList:
-        """
-        List a form's fields (questions), with each field's id, label, type
-        and whether it is required.
-
-        Needed for two things: picking which field a condition should test,
-        and picking which field holds the email address when sending mail to
-        the person who submitted the form.
-        """
-        try:
-            questions = client.get_form_questions(form_id)
-        except JotformAPIError as e:
-            return FormFieldList(form_id=form_id, form_url=_form_url(form_id), error=str(e))
-
-        return FormFieldList(form_id=form_id, form_url=_form_url(form_id), fields=[
-            FormField(
-                field_id=qid,
-                label=q.get("text"),
-                type=q.get("type"),
-                required=q.get("required"),
-                options=_field_options(q),
-            )
-            for qid, q in (questions or {}).items()
-            if isinstance(q, dict)
         ])

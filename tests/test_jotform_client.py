@@ -92,6 +92,44 @@ def test_invalid_json_response_becomes_tool_readable_error(monkeypatch):
     assert "Invalid JSON response" in str(exc.value)
 
 
+def test_create_form_with_ai_falls_back_to_public_form_api_when_ai_endpoint_is_unavailable(monkeypatch):
+    client = JotformClient(api_key="secret-key")
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs.get("json_body")))
+        if path == "/workflow/copilot/createWorkflowForm":
+            raise JotformAPIError(404, "Requested URL is not available")
+        if path == "/form":
+            assert method == "PUT"
+            assert kwargs["json_body"]["properties"]["title"] == "Garanti Servis Talep Formu"
+            return {"content": {"id": "form_fallback_1"}}
+        if path == "/form/form_fallback_1/questions":
+            return {
+                "content": {
+                    "1": {"text": "Garanti Servis Talep Formu", "type": "control_head"},
+                    "3": {"text": "E-posta Adresi", "type": "control_email", "name": "email"},
+                }
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    result = client.create_form_with_ai(
+        "Garanti servis talepleri için müşteri bilgisi, ürün bilgisi ve açıklama topla.",
+        language="tr",
+    )
+
+    assert result["resource_id"] == "form_fallback_1"
+    assert result["ai_fallback"] is True
+    assert result["questions"]["3"]["type"] == "control_email"
+    assert [call[:2] for call in calls] == [
+        ("POST", "/workflow/copilot/createWorkflowForm"),
+        ("PUT", "/form"),
+        ("GET", "/form/form_fallback_1/questions"),
+    ]
+
+
 def test_update_tree_flattens_wire_payload_and_unflattens_echo(monkeypatch):
     client = JotformClient(api_key="secret-key")
     captured = {}

@@ -118,7 +118,7 @@ async def main() -> int:
     tool_count = len(filter_tools(await mcp.list_tools()))
     print(
         f"provider={args.provider}  session={session_id}  "
-        f"profile={current_profile()}  tools={tool_count}"
+        f"surface={current_profile()}  tools={tool_count}"
     )
     print(f"logging to {logging_.LOG_PATH}\n")
 

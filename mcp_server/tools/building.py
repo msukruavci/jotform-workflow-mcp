@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import html
 import re
+import unicodedata
+from copy import deepcopy
 from typing import Annotated
 from uuid import uuid4
 
@@ -29,6 +31,7 @@ from mcp_server.models import (
     CreateWorkflowWithAIFormResult,
     DisconnectStepsResult, StepSpec, UpdateStepResult,
 )
+from mcp_server.tools.reading import form_fields_from_questions
 
 
 def _workflow_url(workflow_id: str | None) -> str | None:
@@ -37,6 +40,13 @@ def _workflow_url(workflow_id: str | None) -> str | None:
 
 def _form_url(form_id: str | None) -> str | None:
     return f"https://www.jotform.com/build/{form_id}" if form_id else None
+
+
+def _element_axis(element: dict, axis: str, default=0):
+    value = element.get(axis)
+    if value is None and isinstance(element.get("position"), dict):
+        value = element["position"].get(axis)
+    return default if value is None else value
 
 
 INTENT_FIELD = Field(
@@ -179,7 +189,7 @@ def _invalid_condition_field_message(
     if not trigger_form_id:
         return (
             "This workflow has no trigger form, so condition fields cannot be verified.",
-            "Bind a trigger form first, then call get_form_fields and use a real field_id.",
+            "Bind a trigger form first, then use get_workflow.trigger_form_fields or a visible field label.",
         )
 
     try:
@@ -202,7 +212,7 @@ def _invalid_condition_field_message(
         "Condition fields must be real field_id values from the trigger form; "
         f"invalid references: {', '.join(invalid)}.",
         (
-            "Call get_form_fields or inspect_workflow_gaps, ask the user which "
+            "Use one of get_workflow.trigger_form_fields or ask the user which "
             f"field to use, then retry. Available fields: {available}"
         ),
     )
@@ -267,6 +277,80 @@ def _question_name_by_token(questions: dict, token: str) -> str | None:
     return None
 
 
+def _question_id_by_token(questions: dict, token: str) -> str | None:
+    wanted = token.strip().strip("{}").lower()
+    normalized_wanted = _field_lookup_key(wanted)
+    email_aliases = {"email", "emailaddress", "eposta", "epostaadresi", "mail"}
+
+    if normalized_wanted in email_aliases:
+        email_matches = [
+            str(qid)
+            for qid, question in questions.items()
+            if isinstance(question, dict) and question.get("type") == "control_email"
+        ]
+        if len(email_matches) == 1:
+            return email_matches[0]
+
+    exact_matches: list[str] = []
+    fuzzy_matches: list[str] = []
+    for qid, question in questions.items():
+        if not isinstance(question, dict):
+            continue
+        raw_candidates = [
+            str(qid).strip().lower(),
+            str(question.get("qid") or "").strip().lower(),
+            str(question.get("name") or "").strip().lower(),
+            str(question.get("text") or "").strip().lower(),
+        ]
+        candidates = {candidate for candidate in raw_candidates if candidate}
+        if wanted in candidates:
+            exact_matches.append(str(qid))
+            continue
+        normalized_candidates = {
+            _field_lookup_key(candidate) for candidate in candidates
+        }
+        if normalized_wanted in normalized_candidates:
+            exact_matches.append(str(qid))
+            continue
+        if len(normalized_wanted) >= 4 and any(
+            normalized_wanted in candidate or candidate in normalized_wanted
+            for candidate in normalized_candidates
+            if candidate
+        ):
+            fuzzy_matches.append(str(qid))
+
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        return None
+    if len(fuzzy_matches) == 1:
+        return fuzzy_matches[0]
+    return None
+
+
+def _field_lookup_key(value: str) -> str:
+    turkish_translations = str.maketrans({
+        "ı": "i",
+        "İ": "I",
+        "ğ": "g",
+        "Ğ": "G",
+        "ü": "u",
+        "Ü": "U",
+        "ş": "s",
+        "Ş": "S",
+        "ö": "o",
+        "Ö": "O",
+        "ç": "c",
+        "Ç": "C",
+    })
+    ascii_value = (
+        unicodedata.normalize("NFKD", value.translate(turkish_translations))
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    return re.sub(r"[^a-z0-9]+", "", ascii_value.lower())
+
+
 def _normalize_content_field_tokens(content: str, questions: dict) -> tuple[str, bool]:
     changed = False
 
@@ -282,6 +366,71 @@ def _normalize_content_field_tokens(content: str, questions: dict) -> tuple[str,
         return "{" + question_name + "}"
 
     return re.sub(r"\{([^{}]+)\}", replace, content), changed
+
+
+def _normalize_condition_field_tokens(
+    config: dict,
+    step_type: str,
+    questions: dict,
+) -> tuple[dict, str | None, str | None]:
+    terms = workflow_inspector.extract_condition_terms(step_type, config)
+    if not terms:
+        return config, None, None
+
+    normalized = deepcopy(config)
+    changed: list[str] = []
+
+    def resolve(raw_field: object) -> str | None:
+        raw = str(raw_field or "").strip()
+        if not raw:
+            return None
+        return _question_id_by_token(questions, raw)
+
+    def normalize_term(term: dict, path: str) -> str | None:
+        raw_field = term.get("field")
+        resolved = resolve(raw_field)
+        if resolved:
+            if str(raw_field) != resolved:
+                term["field"] = resolved
+                changed.append(f"{path}.field {raw_field!r}->{resolved!r}")
+            return None
+        available = [
+            f"{qid}: {q.get('text')}"
+            for qid, q in questions.items()
+            if isinstance(q, dict)
+        ]
+        return (
+            f"{path}.field={raw_field!r} does not match a trigger form field. "
+            f"Available fields: {available}"
+        )
+
+    if step_type == "workflow_binary_decision":
+        for idx, term in enumerate(normalized.get("conditionTerms") or [], start=1):
+            if isinstance(term, dict):
+                error = normalize_term(term, f"conditionTerms[{idx}]")
+                if error:
+                    return normalized, None, error
+
+    if step_type == "workflow_conditional_branch":
+        for outcome_idx, outcome in enumerate(normalized.get("outcomes") or [], start=1):
+            if not isinstance(outcome, dict):
+                continue
+            label = tb.outcome_label(outcome) or f"outcome {outcome_idx}"
+            for term_idx, term in enumerate(outcome.get("conditionTerms") or [], start=1):
+                if isinstance(term, dict):
+                    error = normalize_term(
+                        term,
+                        f"outcomes[{label}].conditionTerms[{term_idx}]",
+                    )
+                    if error:
+                        return normalized, None, error
+
+    hint = (
+        "Normalized condition field references from trigger form: "
+        + "; ".join(changed)
+        if changed else None
+    )
+    return normalized, hint, None
 
 
 def _normalize_assignee_fields(
@@ -385,8 +534,11 @@ EMAIL_MODAL_DEFAULTS = {
 
 def _html_email_content(content: str) -> str:
     stripped = content.strip()
-    if "<html" in stripped.lower() or "<body" in stripped.lower():
+    lower = stripped.lower()
+    if "<html" in lower or "<body" in lower:
         return content
+    if re.search(r"</?(p|div|br|table|ul|ol|li|span|strong|em|b|i|a|h[1-6])\b", lower):
+        return "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n" + stripped + "\n</body>\n</html>"
     paragraphs = [
         f"<p>{html.escape(part).replace(chr(10), '<br />')}</p>"
         for part in stripped.split("\n\n")
@@ -637,6 +789,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             title=title,
             summary=content.get("summary"),
             questions=questions,
+            fields=form_fields_from_questions(questions),
         )
 
     @mcp.tool()
@@ -688,7 +841,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     "the user whether to use an existing form or create a new "
                     "AI form. Existing form: call list_forms, then pass the "
                     "chosen form id as trigger_form_id. New form: use "
-                    "create_workflow_with_ai_form. Only use "
+                    "build_workflow_bulk with title, form_prompt, steps, and "
+                    "connections. Only use "
                     "allow_without_trigger=true if the user explicitly asks "
                     "for a formsuz/no-trigger draft."
                 ),
@@ -794,39 +948,62 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             form_title=form_title,
             form_summary=form_content.get("summary"),
             questions=questions,
+            fields=form_fields_from_questions(questions),
         )
 
     @mcp.tool()
     def build_workflow_bulk(
         workflow_id: Annotated[str, Field(
             description=(
-                "Optional. ID of an existing workflow to add steps to. If omitted, "
+                "Optional. ID of an existing workflow to update or add/delete steps. If omitted, "
                 "a new workflow is created automatically using title/form_prompt."
             )
         )] = "",
         *,
         steps: Annotated[list[StepSpec], Field(
+            default=[],
             description=(
                 "List of steps to create. Each step has a unique 'ref' name (e.g. 'approval_1', 'notify_mgr', 'reject_email'), "
-                "'type' (e.g. 'workflow_approval', 'workflow_send_email', 'workflow_conditional_branch'), and 'config' dict."
+                "'type' (e.g. 'workflow_approval', 'workflow_send_email', 'workflow_conditional_branch'), and 'config' dict. "
+                "Can be empty when only deleting steps via delete_step_ids."
             )
-        )],
+        )] = [],
         connections: Annotated[list[ConnectionSpec], Field(
             default=[],
             description=(
                 "List of connections between steps. 'from_ref' can be 'start' (or '1') for the trigger form, "
-                "or any step 'ref'. 'to_ref' is the target step's 'ref'. 'outcome' is required for branching steps "
-                "(e.g. 'Approve', 'Deny', 'TRUE', 'FALSE', or branch name)."
+                "any new step 'ref', or an existing step_id when workflow_id is provided. 'to_ref' is the target "
+                "step's 'ref' or an existing step_id. 'outcome' is required for branching steps "
+                "(e.g. 'Approve', 'Deny', 'TRUE', 'FALSE', or branch name). When inserting before an existing END, "
+                "reuse that END step_id as the final to_ref instead of creating a duplicate END."
+            )
+        )] = [],
+        delete_step_ids: Annotated[list[str], Field(
+            default=[],
+            description=(
+                "Optional list of existing step IDs to delete from this workflow (e.g. ['8', '9']). "
+                "All incident links touching these steps are deleted automatically, and any parent "
+                "branch outcomes are cleaned up or rewired."
             )
         )] = [],
         title: Annotated[str, Field(
             description="Optional. Name of the workflow when creating a new one."
         )] = "",
         trigger_form_id: Annotated[str, Field(
-            description="Optional. Existing form ID to bind as trigger form when creating a new workflow."
+            description=(
+                "Optional. Existing form ID to bind as trigger form when creating a new workflow. "
+                "Use only when the user explicitly provides an existing form ID or asks to use an existing form; "
+                "otherwise use form_prompt so this Workflow MCP creates the trigger form."
+            )
         )] = "",
         form_prompt: Annotated[str, Field(
-            description="Optional. Natural language description to automatically generate an AI trigger form for this workflow."
+            description=(
+                "Optional. Natural language description to automatically generate an AI trigger form for this workflow. "
+                "Use this for new trigger forms instead of any separate Jotform Form plugin/tool. "
+                "Include the expected form purpose and fields. "
+                "Use only in the same build_workflow_bulk call that includes the complete steps and connections; "
+                "do not call this tool with form_prompt only or empty steps."
+            )
         )] = "",
         form_language: Annotated[str, Field(
             description='Form language for AI trigger form generation. Use "tr" for Turkish, otherwise "en".'
@@ -837,22 +1014,43 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         """
         Primary tool for building workflows in one bulk operation.
 
-        Use this tool for both:
+        Use this tool for:
         - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.
         - Adding a complete graph of steps and connections to an existing workflow_id.
+        - Deleting existing obsolete steps atomically via delete_step_ids (e.g. delete_step_ids=['8', '9']).
+        - Combining step deletion, creation, and rewiring in one atomic call.
 
-        Prefer this over create_workflow_with_ai_form followed by another bulk call for new workflows.
+        If the user asks for a new workflow and does not provide an existing form ID,
+        pass form_prompt here. Do not create the trigger form with any separate
+        Jotform Form plugin/tool, and do not stop after creating only a form.
+
+        This is the model-facing workflow creation path; standalone workflow
+        creation helpers are hidden and only used as internal fallback pieces.
+        Do not use form_prompt as a standalone form creation step; include steps and connections in the same call.
         All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.
-        Use 'start' or '1' as from_ref to connect from the trigger form.
+        Use 'start' or '1' as from_ref to connect from the trigger form. When updating an existing workflow,
+        existing step IDs from get_workflow can also be used in from_ref/to_ref.
         """
         workflow_id = str(workflow_id or "").strip()
         title = str(title or "").strip()
         trigger_form_id = str(trigger_form_id or "").strip()
         form_prompt = str(form_prompt or "").strip()
         form_language = str(form_language or "en").strip() or "en"
+        normalized_delete_ids = [str(sid).strip() for sid in (delete_step_ids or []) if str(sid).strip()]
+        deleted_set = set(normalized_delete_ids)
 
-        if not steps:
-            return BuildWorkflowBulkResult(error="No steps provided to build_workflow_bulk.")
+        if not steps and not normalized_delete_ids:
+            return BuildWorkflowBulkResult(
+                error=(
+                    "No steps provided to build_workflow_bulk. Do not use form_prompt as a standalone "
+                    "form-creation call; retry once with form_prompt plus the complete steps and connections, "
+                    "or provide delete_step_ids to delete existing steps."
+                )
+            )
+        if normalized_delete_ids and not workflow_id:
+            return BuildWorkflowBulkResult(
+                error="delete_step_ids requires workflow_id to be provided."
+            )
 
         # 1. Check uniqueness of step refs
         step_items: list[tuple[str, str, dict]] = []
@@ -868,6 +1066,14 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 return BuildWorkflowBulkResult(error=f"Duplicate step ref '{s_ref}' found in steps list.")
             if s_ref.lower() in ("start", "1"):
                 return BuildWorkflowBulkResult(error=f"Step ref '{s_ref}' is reserved for the trigger form start point.")
+            if s_ref.isdigit():
+                return BuildWorkflowBulkResult(
+                    error=(
+                        f"Step ref '{s_ref}' is invalid. Numeric refs are reserved for existing "
+                        "Jotform step IDs in connections; use a semantic ref like "
+                        "'finance_check' or 'notify_employee' for new steps."
+                    )
+                )
             seen_refs.add(s_ref)
             step_items.append((s_ref, s_type, s_config))
 
@@ -878,13 +1084,30 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             c_from = str(getattr(c, "from_ref", None) or (c.get("from_ref") if isinstance(c, dict) else "") or "").strip()
             c_to = str(getattr(c, "to_ref", None) or (c.get("to_ref") if isinstance(c, dict) else "") or "").strip()
             c_outcome = str(getattr(c, "outcome", None) or (c.get("outcome") if isinstance(c, dict) else "") or "").strip()
-            if c_from not in seen_refs and c_from.lower() not in ("start", "1"):
+            if c_from in deleted_set:
                 return BuildWorkflowBulkResult(
-                    error=f"Connection from_ref '{c_from}' is invalid. Must be 'start', '1', or one of: {list(seen_refs)}."
+                    error=f"Connection from_ref '{c_from}' cannot be used because it is in delete_step_ids."
                 )
-            if c_to not in seen_refs:
+            if c_to in deleted_set:
                 return BuildWorkflowBulkResult(
-                    error=f"Connection to_ref '{c_to}' is invalid. Must be one of: {list(seen_refs)}."
+                    error=f"Connection to_ref '{c_to}' cannot be used because it is in delete_step_ids."
+                )
+            c_from_is_existing = bool(workflow_id and c_from.isdigit())
+            c_to_is_existing = bool(workflow_id and c_to.isdigit())
+            if c_from not in seen_refs and c_from.lower() not in ("start", "1") and not c_from_is_existing:
+                return BuildWorkflowBulkResult(
+                    error=(
+                        f"Connection from_ref '{c_from}' is invalid. Must be 'start', '1', "
+                        f"one of the new step refs {list(seen_refs)}, or an existing numeric "
+                        "step_id when workflow_id is provided."
+                    )
+                )
+            if c_to not in seen_refs and c_to.lower() not in ("end", "2") and not c_to_is_existing:
+                return BuildWorkflowBulkResult(
+                    error=(
+                        f"Connection to_ref '{c_to}' is invalid. Must be 'end', '2', "
+                        f"one of the new step refs {list(seen_refs)}, or an existing numeric step_id when workflow_id is provided."
+                    )
                 )
             conn_items.append((c_from, c_to, c_outcome))
             if c_from in seen_refs:
@@ -906,6 +1129,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         warnings: list[str] = []
         clean_configs: dict[str, dict] = {}
+        trigger_form_fields = []
+        trigger_form_questions: dict = {}
 
         # 3. Validate each step config
         for s_ref, s_type, s_config in step_items:
@@ -960,14 +1185,25 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                         warnings=warnings,
                         error=f"No form id in AI form response: {form_content!r}",
                     )
+                if form_content.get("ai_fallback"):
+                    warnings.append(
+                        "AI form endpoint was unavailable; created the trigger form through MCP public API fallback."
+                    )
                 trigger_form_id = created_trigger_form_id
 
                 questions = form_content.get("questions") if isinstance(form_content.get("questions"), dict) else {}
+                trigger_form_questions = questions
+                trigger_form_fields = form_fields_from_questions(questions)
                 form_title = (questions.get("1") or {}).get("text") if isinstance(questions.get("1"), dict) else None
                 if not title:
                     title = form_title or "Untitled Workflow"
             elif trigger_form_id:
                 created_trigger_form_id = trigger_form_id
+                try:
+                    trigger_form_questions = client.get_form_questions(trigger_form_id)
+                    trigger_form_fields = form_fields_from_questions(trigger_form_questions)
+                except JotformAPIError as e:
+                    warnings.append(f"Could not load trigger form {trigger_form_id} fields: {e}")
 
             if not title:
                 title = "Untitled Workflow"
@@ -1004,6 +1240,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     )
         elif trigger_form_id:
             created_trigger_form_id = trigger_form_id
+            try:
+                trigger_form_questions = client.get_form_questions(trigger_form_id)
+                trigger_form_fields = form_fields_from_questions(trigger_form_questions)
+            except JotformAPIError as e:
+                warnings.append(f"Could not load trigger form {trigger_form_id} fields: {e}")
             bind_error = _bind_and_verify_trigger(client, workflow_id, trigger_form_id, title or workflow_id)
             if bind_error is not None:
                 return BuildWorkflowBulkResult(
@@ -1014,21 +1255,72 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     warnings=warnings,
                     error=bind_error.error,
                 )
+        elif workflow_id:
+            trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions(
+                client,
+                workflow_id,
+            )
+            if questions_for_fields:
+                trigger_form_questions = questions_for_fields
+                trigger_form_fields = form_fields_from_questions(questions_for_fields)
+                created_trigger_form_id = created_trigger_form_id or trigger_form_id_for_fields
+            elif trigger_error:
+                warnings.append(trigger_error)
 
         for s_ref, s_type, _ in step_items:
             clean_cfg = clean_configs[s_ref]
 
-            field_error, field_hint = _invalid_condition_field_message(client, workflow_id, s_type, clean_cfg)
-            if field_error:
-                return BuildWorkflowBulkResult(
-                    workflow_id=workflow_id,
-                    workflow_url=_workflow_url(workflow_id),
-                    trigger_form_id=created_trigger_form_id,
-                    trigger_form_url=_form_url(created_trigger_form_id),
-                    warnings=warnings,
-                    error=f"Step '{s_ref}': {field_error}",
-                    hint=field_hint,
+            if trigger_form_questions:
+                clean_cfg, condition_hint, condition_error = _normalize_condition_field_tokens(
+                    clean_cfg,
+                    s_type,
+                    trigger_form_questions,
                 )
+                if condition_error:
+                    return BuildWorkflowBulkResult(
+                        workflow_id=workflow_id,
+                        workflow_url=_workflow_url(workflow_id),
+                        trigger_form_id=created_trigger_form_id,
+                        trigger_form_url=_form_url(created_trigger_form_id),
+                        trigger_form_fields=trigger_form_fields,
+                        warnings=warnings,
+                        error=f"Step '{s_ref}': {condition_error}",
+                    )
+                if condition_hint:
+                    warnings.append(f"[{s_ref}] {condition_hint}")
+
+            if trigger_form_questions:
+                invalid = workflow_inspector.invalid_field_references(
+                    clean_cfg,
+                    s_type,
+                    {str(qid) for qid in trigger_form_questions},
+                )
+                if invalid:
+                    return BuildWorkflowBulkResult(
+                        workflow_id=workflow_id,
+                        workflow_url=_workflow_url(workflow_id),
+                        trigger_form_id=created_trigger_form_id,
+                        trigger_form_url=_form_url(created_trigger_form_id),
+                        trigger_form_fields=trigger_form_fields,
+                        warnings=warnings,
+                        error=(
+                            f"Step '{s_ref}': condition fields must match trigger "
+                            f"form fields; invalid references: {', '.join(invalid)}."
+                        ),
+                    )
+            else:
+                field_error, field_hint = _invalid_condition_field_message(client, workflow_id, s_type, clean_cfg)
+                if field_error:
+                    return BuildWorkflowBulkResult(
+                        workflow_id=workflow_id,
+                        workflow_url=_workflow_url(workflow_id),
+                        trigger_form_id=created_trigger_form_id,
+                        trigger_form_url=_form_url(created_trigger_form_id),
+                        trigger_form_fields=trigger_form_fields,
+                        warnings=warnings,
+                        error=f"Step '{s_ref}': {field_error}",
+                        hint=field_hint,
+                    )
 
             assignee_fields = ASSIGNEE_FIELDS_BY_STEP_TYPE.get(s_type, ())
             if assignee_fields:
@@ -1078,6 +1370,70 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         start_elem = next((e for e in existing_elements if e.get("type") == "workflow_start_point"), None)
         start_id = start_elem.get("element_id") if start_elem else 1
 
+        existing_elements_by_id = {
+            str(e.get("element_id")): e
+            for e in existing_elements
+            if e.get("element_id") is not None
+        }
+        existing_links_by_id = {
+            str(l.get("link_id")): l
+            for l in existing_links
+            if l.get("link_id") is not None
+        }
+
+        # Validate delete_step_ids
+        for del_id in normalized_delete_ids:
+            if del_id not in existing_elements_by_id:
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    trigger_form_id=created_trigger_form_id,
+                    trigger_form_url=_form_url(created_trigger_form_id),
+                    trigger_form_fields=trigger_form_fields,
+                    warnings=warnings,
+                    error=f"Step '{del_id}' in delete_step_ids does not exist in workflow {workflow_id}.",
+                )
+            del_elem = existing_elements_by_id[del_id]
+            if del_elem.get("type") == "workflow_start_point":
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    trigger_form_id=created_trigger_form_id,
+                    trigger_form_url=_form_url(created_trigger_form_id),
+                    trigger_form_fields=trigger_form_fields,
+                    warnings=warnings,
+                    error=f"Cannot delete workflow start point (step '{del_id}').",
+                )
+
+        element_deletes = [
+            {"action": "delete", "elementID": sid, "data": {"element_id": sid}}
+            for sid in normalized_delete_ids
+        ]
+
+        deleted_incident_links = [
+            l for l in existing_links
+            if str(l.get("fromElement")) in deleted_set or str(l.get("toElement")) in deleted_set
+        ]
+        deleted_incident_link_ids = {
+            l.get("link_id") for l in deleted_incident_links
+            if l.get("link_id") is not None
+        }
+        link_deletes = [
+            {"action": "delete", "linkID": lid, "data": {"link_id": lid}}
+            for lid in deleted_incident_link_ids
+        ]
+
+        outcome_updates_by_element: dict[str, dict] = {}
+        # Clear outcomes for non-deleted branching steps whose links were deleted
+        for source_id, source_elem in existing_elements_by_id.items():
+            if source_id in deleted_set:
+                continue
+            if source_elem.get("type") not in schema_registry.BRANCHING_TYPES:
+                continue
+            clear = tb.build_outcome_clears_for_links(source_elem, list(deleted_incident_link_ids))
+            if clear is not None:
+                outcome_updates_by_element[str(source_id)] = clear
+
         existing_elem_ids = [
             int(e.get("element_id"))
             for e in existing_elements
@@ -1086,11 +1442,43 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         curr_elem_id = max(existing_elem_ids, default=1)
 
         ref_to_id: dict[str, int | str] = {"start": start_id, "1": start_id}
+        end_elem = next((e for e in existing_elements if e.get("type") == "workflow_end_point"), None)
+        end_id = end_elem.get("element_id") if end_elem else 2
+        ref_to_id["end"] = end_id
+        ref_to_id["2"] = end_id
+        ref_to_id[str(end_id)] = end_id
+        for existing_id in existing_elements_by_id:
+            if existing_id not in deleted_set:
+                ref_to_id[existing_id] = existing_id
         for s_ref, _, _ in step_items:
             curr_elem_id += 1
             ref_to_id[s_ref] = curr_elem_id
 
-        all_elements = list(existing_elements)
+        for c_from, c_to, _ in conn_items:
+            if c_from not in ref_to_id:
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    trigger_form_id=created_trigger_form_id,
+                    trigger_form_url=_form_url(created_trigger_form_id),
+                    trigger_form_fields=trigger_form_fields,
+                    warnings=warnings,
+                    error=f"Connection from_ref '{c_from}' does not exist in workflow {workflow_id}.",
+                    hint="Call get_workflow and use either a new step ref or an existing step_id from the steps list.",
+                )
+            if c_to not in ref_to_id:
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    trigger_form_id=created_trigger_form_id,
+                    trigger_form_url=_form_url(created_trigger_form_id),
+                    trigger_form_fields=trigger_form_fields,
+                    warnings=warnings,
+                    error=f"Connection to_ref '{c_to}' does not exist in workflow {workflow_id}.",
+                    hint="Call get_workflow and use either a new step ref or an existing step_id from the steps list.",
+                )
+
+        all_elements = [e for e in existing_elements if str(e.get("element_id")) not in deleted_set]
         element_creates: list[dict] = []
         created_data_by_id: dict[int | str, dict] = {}
 
@@ -1130,6 +1518,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         curr_link_id = max(existing_link_ids, default=0)
 
         link_creates: list[dict] = []
+        position_updates_by_element: dict[str, dict] = {}
+        used_branch_outcomes: set[tuple[str, str]] = set()
 
         for c_from, c_to, c_outcome in conn_items:
             curr_link_id += 1
@@ -1164,15 +1554,50 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             link_payload = tb.build_link_create(lid, from_id, to_id)
 
             if is_branching:
-                try:
-                    matched_outcome = tb.resolve_outcome(from_elem_data, c_outcome)
-                except tb.ValidationError as e:
-                    return BuildWorkflowBulkResult(warnings=warnings, error=str(e))
+                outcomes_list = from_elem_data.get("outcomes") or []
+                matched_outcome = None
+                for idx, outcome_item in enumerate(outcomes_list, start=1):
+                    candidate = tb._task_outcome_object(outcome_item, idx) if isinstance(outcome_item, str) else outcome_item
+                    if (tb.outcome_label(candidate) or "").strip().lower() == c_outcome.strip().lower():
+                        matched_outcome = candidate
+                        break
+                if matched_outcome is None:
+                    available = [tb.outcome_label(o) for o in outcomes_list]
+                    return BuildWorkflowBulkResult(
+                        warnings=warnings,
+                        error=f"'{c_outcome}' is not an outcome on this step. Available: {available}",
+                    )
 
                 outcome_label = tb.outcome_label(matched_outcome) or c_outcome
+                outcome_key = (str(from_id), outcome_label.strip().lower())
+                if outcome_key in used_branch_outcomes:
+                    return BuildWorkflowBulkResult(
+                        workflow_id=workflow_id,
+                        workflow_url=_workflow_url(workflow_id),
+                        trigger_form_id=created_trigger_form_id,
+                        trigger_form_url=_form_url(created_trigger_form_id),
+                        trigger_form_fields=trigger_form_fields,
+                        warnings=warnings,
+                        error=(
+                            f"Outcome '{outcome_label}' on step '{c_from}' is already used "
+                            "in this bulk update. A branching outcome can point to only one target."
+                        ),
+                    )
+                used_branch_outcomes.add(outcome_key)
                 link_payload["data"]["labels"] = [{"justCreated": True, "label": outcome_label}]
 
                 outcome_id = matched_outcome.get("outcomeID") or matched_outcome.get("id") if isinstance(matched_outcome, dict) else 1
+                previous_link_id = matched_outcome.get("linkID") if isinstance(matched_outcome, dict) else None
+                if previous_link_id not in (None, 0, "0", ""):
+                    if previous_link_id not in deleted_incident_link_ids:
+                        link_deletes.append(tb.build_link_delete(previous_link_id))
+                    previous_link = existing_links_by_id.get(str(previous_link_id))
+                    previous_to = previous_link.get("toElement") if previous_link else None
+                    warnings.append(
+                        f"[{c_from}] Rewired outcome '{outcome_label}' from existing link "
+                        f"{previous_link_id}" + (f" to step {previous_to}" if previous_to else "") + "."
+                    )
+
                 outcomes = from_elem_data.get("outcomes") or []
                 updated_outcomes = []
                 for idx, o in enumerate(outcomes, start=1):
@@ -1190,21 +1615,52 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     else:
                         updated_outcomes.append(o)
                 from_elem_data["outcomes"] = updated_outcomes
+                if from_id not in created_data_by_id:
+                    outcome_updates_by_element[str(from_id)] = tb.build_element_update(
+                        from_id,
+                        {"outcomes": updated_outcomes},
+                    )
 
             link_creates.append(link_payload)
 
+            if c_from in seen_refs and c_to not in seen_refs:
+                target_existing = existing_elements_by_id.get(str(to_id))
+                source_new = created_data_by_id.get(from_id)
+                if (
+                    target_existing
+                    and source_new
+                    and target_existing.get("type") == "workflow_end_point"
+                    and source_new.get("y") is not None
+                ):
+                    source_y = int(source_new.get("y") or 0)
+                    target_y = int(_element_axis(target_existing, "y", 0) or 0)
+                    if target_y <= source_y:
+                        position_updates_by_element[str(to_id)] = tb.build_element_update(
+                            to_id,
+                            {
+                                "x": source_new.get("x", _element_axis(target_existing, "x", 0)),
+                                "y": source_y + tb.STEP_Y,
+                            },
+                        )
+
         # 6. Atomic write via update_tree
         try:
+            revision_desc = f"before build_workflow_bulk ({len(steps)} steps, {len(normalized_delete_ids)} deletes)"
             revision_log.capture_workflow_revision(
                 client,
                 workflow_id,
-                _revision_reason(f"before build_workflow_bulk ({len(steps)} steps)", intent, reason),
+                _revision_reason(revision_desc, intent, reason),
                 tool_name="build_workflow_bulk",
             )
             client.update_tree(
                 workflow_id,
-                elements=element_creates,
-                links=link_creates,
+                elements=(
+                    element_deletes
+                    + element_creates
+                    + list(outcome_updates_by_element.values())
+                    + list(position_updates_by_element.values())
+                ),
+                links=link_deletes + link_creates,
             )
         except JotformAPIError as e:
             return BuildWorkflowBulkResult(
@@ -1221,7 +1677,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             workflow_url=_workflow_url(workflow_id),
             trigger_form_id=created_trigger_form_id,
             trigger_form_url=_form_url(created_trigger_form_id),
+            trigger_form_fields=trigger_form_fields,
             created_steps={s_ref: str(ref_to_id[s_ref]) for s_ref, _, _ in step_items},
+            deleted_steps=normalized_delete_ids,
             created_links_count=len(link_creates),
             warnings=warnings,
         )
@@ -1320,7 +1778,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     type=step_type,
                     warnings=warnings,
                     error=assignee_error,
-                    hint="Use a valid fixed email address or call get_form_fields and choose a real email field.",
+                    hint="Use a valid fixed email address or choose a real email field from trigger_form_fields.",
                 )
             if assignee_hint:
                 warnings.append(assignee_hint)
@@ -1685,7 +2143,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     step_id=step_id,
                     warnings=warnings,
                     error=assignee_error,
-                    hint="Use a valid fixed email address or call get_form_fields and choose a real email field.",
+                    hint="Use a valid fixed email address or choose a real email field from trigger_form_fields.",
                 )
             if assignee_hint:
                 warnings.append(assignee_hint)

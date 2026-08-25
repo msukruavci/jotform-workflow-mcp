@@ -65,13 +65,30 @@ app.routes.append(Route("/", endpoint=sse_endpoint, methods=["GET", "POST", "OPT
 class AuditHTTPMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         body = await request.body()
+        headers = dict(request.headers)
+        query = dict(request.query_params)
+        ua = (headers.get("user-agent") or "").lower()
+        origin = (headers.get("origin") or "").lower()
+        q_plat = (query.get("platform") or query.get("client") or "").lower()
+
+        provider = None
+        model = None
+        if q_plat == "claude" or "claude" in ua or "anthropic" in ua or "claude.ai" in origin:
+            provider = "anthropic"
+            model = "Claude Web / Connector"
+        elif q_plat in ("gpt", "openai", "chatgpt") or "chatgpt" in ua or "openai" in ua or "chatgpt.com" in origin or "openai.com" in origin:
+            provider = "openai"
+            model = "ChatGPT Developer Connector"
+
         write_event(
             "mcp.http.request",
             method=request.method,
             path=request.url.path,
-            query=dict(request.query_params),
+            query=query,
             client=request.client.host if request.client else None,
-            headers=dict(request.headers),
+            headers=headers,
+            provider=provider,
+            model=model,
             body=body.decode("utf-8", errors="replace") if body else "",
         )
         response = await call_next(request)
@@ -80,6 +97,8 @@ class AuditHTTPMiddleware(BaseHTTPMiddleware):
             method=request.method,
             path=request.url.path,
             status_code=response.status_code,
+            provider=provider,
+            model=model,
         )
         return response
 

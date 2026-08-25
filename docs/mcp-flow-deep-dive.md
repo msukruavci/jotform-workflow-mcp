@@ -526,7 +526,7 @@ Pydantic result schemas listed in the next section.
 | `disconnect_steps` | `workflow_id`, `link_id`, `intent=""`, `reason=""` |
 | `update_step` | `workflow_id`, `step_id`, `config`, `intent=""`, `reason=""` |
 | `delete_step` | `workflow_id`, `step_id`, `confirm=false`, `intent=""`, `reason=""` |
-| `publish_workflow` | `workflow_id`, `confirm=false`, `intent=""`, `reason=""` |
+| `publish_workflow` | `workflow_id`, `intent=""`, `reason=""` |
 | `restore_workflow_revision` | `workflow_id`, `revision_id=""`, `confirm=false`, `intent=""`, `reason=""` |
 | `delete_workflow` | `workflow_id`, `confirm=false`, `confirm_title=""`, `intent=""`, `reason=""` |
 

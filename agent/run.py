@@ -167,15 +167,31 @@ async def main() -> int:
         print("ANTHROPIC_API_KEY is not set — add it to .env")
         return 1
 
+    from agent import cost, logging_
+    import uuid
+
     client = Anthropic()
     tools = await build_tool_definitions()
-    print(f"{len(tools)} tools loaded, profile={current_profile()}, model={MODEL}\n")
+    session_id = str(uuid.uuid4())[:8]
+    print(f"{len(tools)} tools loaded, surface={current_profile()}, model={MODEL}, session={session_id}\n")
 
     messages: list[dict] = []
 
     if len(sys.argv) > 1:
-        messages.append({"role": "user", "content": " ".join(sys.argv[1:])})
-        await converse(client, tools, messages)
+        question = " ".join(sys.argv[1:])
+        messages.append({"role": "user", "content": question})
+        trace: dict = {}
+        t0 = time.perf_counter()
+        await converse(client, tools, messages, trace=trace)
+        duration_ms = (time.perf_counter() - t0) * 1000
+        logging_.log_turn(
+            session_id=session_id, provider="anthropic", model=MODEL,
+            question=question, answer=trace.get("answer", ""),
+            tool_calls=trace.get("tool_calls", []),
+            input_tokens=trace.get("input_tokens"), output_tokens=trace.get("output_tokens"),
+            cost_usd=cost.estimate_cost(MODEL, trace.get("input_tokens"), trace.get("output_tokens")),
+            duration_ms=duration_ms, error=trace.get("error"),
+        )
         return 0
 
     while True:
@@ -187,7 +203,18 @@ async def main() -> int:
         if user_input.lower() in ("exit", "quit", ""):
             return 0
         messages.append({"role": "user", "content": user_input})
-        messages = await converse(client, tools, messages)
+        trace = {}
+        t0 = time.perf_counter()
+        messages = await converse(client, tools, messages, trace=trace)
+        duration_ms = (time.perf_counter() - t0) * 1000
+        logging_.log_turn(
+            session_id=session_id, provider="anthropic", model=MODEL,
+            question=user_input, answer=trace.get("answer", ""),
+            tool_calls=trace.get("tool_calls", []),
+            input_tokens=trace.get("input_tokens"), output_tokens=trace.get("output_tokens"),
+            cost_usd=cost.estimate_cost(MODEL, trace.get("input_tokens"), trace.get("output_tokens")),
+            duration_ms=duration_ms, error=trace.get("error"),
+        )
 
 
 if __name__ == "__main__":

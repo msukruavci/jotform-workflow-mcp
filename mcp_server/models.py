@@ -116,6 +116,13 @@ class WorkflowDetail(BaseModel):
     publish_status: str | None = None
     steps: list[Step] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
+    trigger_form_fields: list[FormField] = Field(
+        default_factory=list,
+        description=(
+            "Fields/questions from the trigger form, included so callers do not "
+            "need a separate field-inspection call after get_workflow."
+        ),
+    )
     health: WorkflowHealth | None = None
     diagnostics: dict = Field(
         default_factory=dict,
@@ -307,6 +314,10 @@ class CreateAIFormResult(BaseModel):
     title: str | None = None
     summary: str | None = None
     questions: dict = Field(default_factory=dict)
+    fields: list[FormField] = Field(
+        default_factory=list,
+        description="Simplified fields/questions from the created form.",
+    )
     error: str | None = None
 
 
@@ -319,6 +330,10 @@ class CreateWorkflowWithAIFormResult(BaseModel):
     form_title: str | None = None
     form_summary: str | None = None
     questions: dict = Field(default_factory=dict)
+    fields: list[FormField] = Field(
+        default_factory=list,
+        description="Simplified fields/questions from the created trigger form.",
+    )
     error: str | None = None
 
 
@@ -380,16 +395,31 @@ class StepSpec(BaseModel):
     )
     config: dict = Field(
         default_factory=dict,
-        description="Fields for this step type — check get_step_schema."
+        description=(
+            "Fields for this step type — check get_step_schema. For condition "
+            "terms in build_workflow_bulk, prefer the trigger form's visible "
+            "field label. Known field_id/qid/name values are also accepted; "
+            "the bulk tool resolves them after creating/reading the trigger form "
+            "and refuses ambiguous labels instead of guessing."
+        )
     )
 
 
 class ConnectionSpec(BaseModel):
     from_ref: str = Field(
-        description="The source step's ref name (e.g. 'start', '1', or 'approval_1'). 'start' or '1' refers to the trigger form start point."
+        description=(
+            "The source step's ref name (e.g. 'start', '1', or 'approval_1'). "
+            "'start' or '1' refers to the trigger form start point. When updating "
+            "an existing workflow, an existing Jotform step_id from get_workflow "
+            "is also accepted."
+        )
     )
     to_ref: str = Field(
-        description="The target step's ref name (e.g. 'approval_1', 'notify_mgr')."
+        description=(
+            "The target step's ref name (e.g. 'approval_1', 'notify_mgr'). When "
+            "updating an existing workflow, an existing Jotform step_id from "
+            "get_workflow is also accepted."
+        )
     )
     outcome: str = Field(
         default="",
@@ -406,9 +436,20 @@ class BuildWorkflowBulkResult(BaseModel):
     workflow_url: str | None = None
     trigger_form_id: str | None = None
     trigger_form_url: str | None = None
+    trigger_form_fields: list[FormField] = Field(
+        default_factory=list,
+        description=(
+            "Fields/questions from the created or bound trigger form, included "
+            "so callers do not need a separate field-inspection call."
+        ),
+    )
     created_steps: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping from step ref to created Jotform step_id"
+    )
+    deleted_steps: list[str] = Field(
+        default_factory=list,
+        description="List of step IDs that were deleted in this bulk update",
     )
     created_links_count: int = 0
     warnings: list[str] = Field(default_factory=list)
@@ -417,12 +458,8 @@ class BuildWorkflowBulkResult(BaseModel):
 
 
 # --- Layer 4: risky ------------------------------------------------------
-# Every result here carries needs_confirmation. The pattern: call once
-# without confirm=True to get a preview and nothing changes; call again
-# with confirm=True — only after the model has shown the preview to the
-# user and gotten an explicit yes — to actually act. Mirrors the confirm
-# pattern this assistant itself uses for ending a conversation: the first
-# call is a question, not an action.
+# Destructive tools still carry needs_confirmation. publish_workflow publishes
+# immediately and reports any structural warnings in the same result.
 
 class DeleteStepResult(BaseModel):
     step_id: str | None = None
@@ -445,7 +482,7 @@ class PublishWorkflowResult(BaseModel):
     health_warnings: list[str] = Field(
         default_factory=list,
         description="Structural problems in the workflow as it stands — "
-                     "shown before publishing, not a reason to block it"
+                     "reported alongside the publish result"
     )
     published: bool = False
     error: str | None = None

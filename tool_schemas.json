@@ -143,24 +143,6 @@
     }
   },
   {
-    "name": "inspect_workflow_gaps",
-    "description": "Check for incomplete workflow setup before continuing or publishing.\n\n        This catches empty links, unwired branch outcomes, missing assignees,\n        missing email/task content, and condition fields that are not real\n        fields on the trigger form. Call this before presenting a workflow as\n        ready, and when the user asks what still needs to be completed.",
-    "input_schema": {
-      "properties": {
-        "workflow_id": {
-          "description": "From list_workflows.",
-          "title": "Workflow Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "workflow_id"
-      ],
-      "title": "inspect_workflow_gapsArguments",
-      "type": "object"
-    }
-  },
-  {
     "name": "list_forms",
     "description": "List the user's forms, with each form's id, title, status and\n        submission count.\n\n        A workflow is triggered by one of these, so this is usually the first\n        call when working out which form a workflow is about.",
     "input_schema": {
@@ -170,26 +152,8 @@
     }
   },
   {
-    "name": "get_form_fields",
-    "description": "List a form's fields (questions), with each field's id, label, type\n        and whether it is required.\n\n        Needed for two things: picking which field a condition should test,\n        and picking which field holds the email address when sending mail to\n        the person who submitted the form.",
-    "input_schema": {
-      "properties": {
-        "form_id": {
-          "description": "From list_forms.",
-          "title": "Form Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "form_id"
-      ],
-      "title": "get_form_fieldsArguments",
-      "type": "object"
-    }
-  },
-  {
     "name": "search_workflow_templates",
-    "description": "Search the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        Use this tool whenever the user asks for workflow ideas, inspiration, or template\n        recommendations, or when asked to design/create a new workflow for any domain\n        (e.g., leave request, approvals, onboarding, expense, feedback) to discover proven\n        architectures and step patterns.",
+    "description": "Search and inspect the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        Use this tool whenever the user asks for workflow ideas, inspiration, or template\n        recommendations, or when asked to design/create a new workflow for any domain\n        (e.g., leave request, approvals, onboarding, expense, feedback) to discover proven\n        architectures and step patterns. Returns the top matching template blueprints directly;\n        do not call a separate template-detail tool afterward.",
     "input_schema": {
       "properties": {
         "query": {
@@ -198,8 +162,8 @@
           "type": "string"
         },
         "top_k": {
-          "default": 3,
-          "description": "Number of relevant template references to return (default 3, max 10)",
+          "default": 2,
+          "description": "Number of relevant template blueprints to return (default 2, max 3)",
           "title": "Top K",
           "type": "integer"
         }
@@ -208,24 +172,6 @@
         "query"
       ],
       "title": "search_workflow_templatesArguments",
-      "type": "object"
-    }
-  },
-  {
-    "name": "get_workflow_template",
-    "description": "Retrieve the full architectural blueprint of a workflow template.\n\n        Returns complete element configurations (names, types, approval outcomes/buttons,\n        assigned roles, email templates, timeouts) and edge links connecting each step.\n        Use this to inspect exact configurations or replicate a template's flow structure.",
-    "input_schema": {
-      "properties": {
-        "template_id": {
-          "description": "The unique ID of the template to inspect in detail (e.g. '242943285550056').",
-          "title": "Template Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "template_id"
-      ],
-      "title": "get_workflow_templateArguments",
       "type": "object"
     }
   },
@@ -272,109 +218,19 @@
     }
   },
   {
-    "name": "create_workflow",
-    "description": "Low-level helper to create a new workflow with a trigger form.\n\n        For ordinary new-workflow requests, prefer build_workflow_bulk with\n        title/form_prompt or title/trigger_form_id so creation and step wiring\n        happen in one tool call. Use this tool only for manual/partial setup.\n\n        1. Use an existing form — then call list_forms and pass the chosen\n           form id as trigger_form_id.\n        2. Create a new form first — prefer build_workflow_bulk with form_prompt.\n        3. No trigger form yet — only proceed with allow_without_trigger=true\n           if the user explicitly asks for a draft workflow without one.\n\n        Returns the new workflow_id. ALWAYS use build_workflow_bulk to add\n        all steps and connections in one atomic shot. DO NOT call add_step in a loop.",
-    "input_schema": {
-      "properties": {
-        "title": {
-          "description": "Workflow name.",
-          "title": "Title",
-          "type": "string"
-        },
-        "trigger_form_id": {
-          "default": "",
-          "description": "Required unless allow_without_trigger=true — the form (from list_forms) whose submissions should trigger this workflow. Before calling create_workflow, decide the form strategy with the user: existing form or new AI-created form. For an existing form, call list_forms first and use the selected id here. For a complete new workflow, prefer build_workflow_bulk with form_prompt/title instead of this low-level tool. Binding takes two API calls under the hood and is verified by reading the start point back.",
-          "title": "Trigger Form Id",
-          "type": "string"
-        },
-        "allow_without_trigger": {
-          "default": false,
-          "description": "Default false. Set true only if the user explicitly asks for a draft workflow with no trigger form. Normal workflows must have a trigger form.",
-          "title": "Allow Without Trigger",
-          "type": "boolean"
-        },
-        "intent": {
-          "default": "",
-          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
-          "title": "Intent",
-          "type": "string"
-        },
-        "reason": {
-          "default": "",
-          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "title"
-      ],
-      "title": "create_workflowArguments",
-      "type": "object"
-    }
-  },
-  {
-    "name": "create_workflow_with_ai_form",
-    "description": "Low-level helper to create a new AI-generated form, then a workflow triggered by it.\n\n        For complete new workflows, prefer a single build_workflow_bulk call\n        with title, form_prompt, steps, and connections. Use this helper only\n        when the user explicitly wants form/workflow creation without steps yet.",
-    "input_schema": {
-      "properties": {
-        "title": {
-          "description": "Workflow name.",
-          "title": "Title",
-          "type": "string"
-        },
-        "form_prompt": {
-          "description": "Natural-language description of the new trigger form to create before creating the workflow. Include the form's purpose and desired fields. Default language is English; mention Turkish only if the user asks for it.",
-          "title": "Form Prompt",
-          "type": "string"
-        },
-        "form_type": {
-          "default": "classic",
-          "description": "Form type preference for Jotform AI. Default \"classic\".",
-          "title": "Form Type",
-          "type": "string"
-        },
-        "language": {
-          "default": "en",
-          "description": "Form language preference. Default \"en\"; use \"tr\" when the user wants Turkish.",
-          "title": "Language",
-          "type": "string"
-        },
-        "intent": {
-          "default": "",
-          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
-          "title": "Intent",
-          "type": "string"
-        },
-        "reason": {
-          "default": "",
-          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "title",
-        "form_prompt"
-      ],
-      "title": "create_workflow_with_ai_formArguments",
-      "type": "object"
-    }
-  },
-  {
     "name": "build_workflow_bulk",
-    "description": "Primary tool for building workflows in one bulk operation.\n\n        Use this tool for both:\n        - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.\n        - Adding a complete graph of steps and connections to an existing workflow_id.\n\n        Prefer this over create_workflow_with_ai_form followed by another bulk call for new workflows.\n        All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.\n        Use 'start' or '1' as from_ref to connect from the trigger form.",
+    "description": "Primary tool for building workflows in one bulk operation.\n\n        Use this tool for both:\n        - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.\n        - Adding a complete graph of steps and connections to an existing workflow_id.\n\n        If the user asks for a new workflow and does not provide an existing form ID,\n        pass form_prompt here. Do not create the trigger form with any separate\n        Jotform Form plugin/tool, and do not stop after creating only a form.\n\n        This is the model-facing workflow creation path; standalone workflow\n        creation helpers are hidden and only used as internal fallback pieces.\n        Do not use form_prompt as a standalone form creation step; include steps and connections in the same call.\n        All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.\n        Use 'start' or '1' as from_ref to connect from the trigger form. When updating an existing workflow,\n        existing step IDs from get_workflow can also be used in from_ref/to_ref.",
     "input_schema": {
       "$defs": {
         "ConnectionSpec": {
           "properties": {
             "from_ref": {
-              "description": "The source step's ref name (e.g. 'start', '1', or 'approval_1'). 'start' or '1' refers to the trigger form start point.",
+              "description": "The source step's ref name (e.g. 'start', '1', or 'approval_1'). 'start' or '1' refers to the trigger form start point. When updating an existing workflow, an existing Jotform step_id from get_workflow is also accepted.",
               "title": "From Ref",
               "type": "string"
             },
             "to_ref": {
-              "description": "The target step's ref name (e.g. 'approval_1', 'notify_mgr').",
+              "description": "The target step's ref name (e.g. 'approval_1', 'notify_mgr'). When updating an existing workflow, an existing Jotform step_id from get_workflow is also accepted.",
               "title": "To Ref",
               "type": "string"
             },
@@ -406,7 +262,7 @@
             },
             "config": {
               "additionalProperties": true,
-              "description": "Fields for this step type — check get_step_schema.",
+              "description": "Fields for this step type — check get_step_schema. For condition terms in build_workflow_bulk, prefer the trigger form's visible field label. Known field_id/qid/name values are also accepted; the bulk tool resolves them after creating/reading the trigger form and refuses ambiguous labels instead of guessing.",
               "title": "Config",
               "type": "object"
             }
@@ -436,7 +292,7 @@
         },
         "connections": {
           "default": [],
-          "description": "List of connections between steps. 'from_ref' can be 'start' (or '1') for the trigger form, or any step 'ref'. 'to_ref' is the target step's 'ref'. 'outcome' is required for branching steps (e.g. 'Approve', 'Deny', 'TRUE', 'FALSE', or branch name).",
+          "description": "List of connections between steps. 'from_ref' can be 'start' (or '1') for the trigger form, any new step 'ref', or an existing step_id when workflow_id is provided. 'to_ref' is the target step's 'ref' or an existing step_id. 'outcome' is required for branching steps (e.g. 'Approve', 'Deny', 'TRUE', 'FALSE', or branch name). When inserting before an existing END, reuse that END step_id as the final to_ref instead of creating a duplicate END.",
           "items": {
             "$ref": "#/$defs/ConnectionSpec"
           },
@@ -451,13 +307,13 @@
         },
         "trigger_form_id": {
           "default": "",
-          "description": "Optional. Existing form ID to bind as trigger form when creating a new workflow.",
+          "description": "Optional. Existing form ID to bind as trigger form when creating a new workflow. Use only when the user explicitly provides an existing form ID or asks to use an existing form; otherwise use form_prompt so this Workflow MCP creates the trigger form.",
           "title": "Trigger Form Id",
           "type": "string"
         },
         "form_prompt": {
           "default": "",
-          "description": "Optional. Natural language description to automatically generate an AI trigger form for this workflow.",
+          "description": "Optional. Natural language description to automatically generate an AI trigger form for this workflow. Use this for new trigger forms instead of any separate Jotform Form plugin/tool. Include the expected form purpose and fields. Use only in the same build_workflow_bulk call that includes the complete steps and connections; do not call this tool with form_prompt only or empty steps.",
           "title": "Form Prompt",
           "type": "string"
         },
@@ -484,188 +340,6 @@
         "steps"
       ],
       "title": "build_workflow_bulkArguments",
-      "type": "object"
-    }
-  },
-  {
-    "name": "add_step",
-    "description": "Add a single step to an EXISTING workflow for minor manual edits.\n\n        CRITICAL: DO NOT call add_step in a loop when creating or generating a workflow.\n        ALWAYS use build_workflow_bulk instead to build all steps and wiring in one atomic call.\n\n        Returns the new step_id. Position on the canvas is chosen automatically.",
-    "input_schema": {
-      "properties": {
-        "workflow_id": {
-          "description": "From list_workflows.",
-          "title": "Workflow Id",
-          "type": "string"
-        },
-        "step_type": {
-          "description": "From list_step_types, e.g. \"workflow_send_email\".",
-          "title": "Step Type",
-          "type": "string"
-        },
-        "config": {
-          "additionalProperties": true,
-          "description": "Fields for this step type — call get_step_schema first to see what it accepts. Unknown fields are dropped, not rejected; check `warnings` in the result. Before adding steps whose behavior depends on user intent — tasks, emails, approvals, conditions, conditional branches, or any step with outcomes/description/message fields — ask one short question for the missing essentials instead of creating an empty placeholder. Examples: for a task ask who it is assigned to and what should be done; for a branch ask the branch names and conditions; for an approval ask the approver and outcomes. The server refuses empty task/approval/assign/email/sign/condition steps.",
-          "title": "Config",
-          "type": "object"
-        },
-        "after_step_id": {
-          "default": "",
-          "description": "Optional — if given, connects this step directly after that one. Only works when after_step_id doesn't already have an outgoing connection (a step with more than one exit needs deliberate wiring — use connect_steps for that, with an outcome if the source branches).",
-          "title": "After Step Id",
-          "type": "string"
-        },
-        "allow_duplicate": {
-          "default": false,
-          "description": "Default false. Set true only after the user explicitly wants another similar step instead of reusing/updating/connecting the existing one.",
-          "title": "Allow Duplicate",
-          "type": "boolean"
-        },
-        "intent": {
-          "default": "",
-          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
-          "title": "Intent",
-          "type": "string"
-        },
-        "reason": {
-          "default": "",
-          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "workflow_id",
-        "step_type",
-        "config"
-      ],
-      "title": "add_stepArguments",
-      "type": "object"
-    }
-  },
-  {
-    "name": "connect_steps",
-    "description": "Connect two existing steps in an EXISTING workflow for minor manual edits.\n\n        CRITICAL: DO NOT call connect_steps in a loop when creating or generating a workflow.\n        ALWAYS use build_workflow_bulk instead to build all steps and connections in one atomic call.\n\n        Fails without changing anything if the outcome doesn't exist, is\n        already connected elsewhere, or is missing when required.",
-    "input_schema": {
-      "properties": {
-        "workflow_id": {
-          "description": "From list_workflows.",
-          "title": "Workflow Id",
-          "type": "string"
-        },
-        "from_step_id": {
-          "description": "From get_workflow's steps list.",
-          "title": "From Step Id",
-          "type": "string"
-        },
-        "to_step_id": {
-          "description": "From get_workflow's steps list.",
-          "title": "To Step Id",
-          "type": "string"
-        },
-        "outcome": {
-          "default": "",
-          "description": "Required if from_step_id is a branching step: if/else, conditional branch, approval, or task with outcomes. Examples: \"TRUE\", \"FALSE\", \"Approve\", \"Reject\", or a custom task/branch outcome name. Check get_workflow or get_step_details on from_step_id to see what outcomes exist and which are already used. Leave empty only for steps without outcomes.",
-          "title": "Outcome",
-          "type": "string"
-        },
-        "intent": {
-          "default": "",
-          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
-          "title": "Intent",
-          "type": "string"
-        },
-        "reason": {
-          "default": "",
-          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "workflow_id",
-        "from_step_id",
-        "to_step_id"
-      ],
-      "title": "connect_stepsArguments",
-      "type": "object"
-    }
-  },
-  {
-    "name": "disconnect_steps",
-    "description": "Remove a single connection between two steps, without deleting\n        either step.\n\n        If the connection leaves a branching step (if/else, conditional\n        branch, approval, or task with outcomes), that outcome's link is cleared first — so it\n        shows up as unconnected again and can be wired to something else\n        with connect_steps. Without this, the outcome would still point at\n        a link_id that no longer exists: resolve_outcome would wrongly\n        report it as already connected, and get_workflow's health check\n        would separately start flagging it as a dangling link.\n\n        Use this instead of add_step + connect_steps when the goal is\n        rewiring an existing structure — for example, replacing\n        On Submission -> Review -> Approval with a direct\n        On Submission -> Approval by removing the old link first.",
-    "input_schema": {
-      "properties": {
-        "workflow_id": {
-          "description": "From list_workflows.",
-          "title": "Workflow Id",
-          "type": "string"
-        },
-        "link_id": {
-          "description": "From get_workflow's connections list.",
-          "title": "Link Id",
-          "type": "string"
-        },
-        "intent": {
-          "default": "",
-          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
-          "title": "Intent",
-          "type": "string"
-        },
-        "reason": {
-          "default": "",
-          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "workflow_id",
-        "link_id"
-      ],
-      "title": "disconnect_stepsArguments",
-      "type": "object"
-    }
-  },
-  {
-    "name": "update_step",
-    "description": "Change an existing step's configuration.\n\n        Does not move the step or change its connections — use connect_steps\n        for wiring.",
-    "input_schema": {
-      "properties": {
-        "workflow_id": {
-          "description": "From list_workflows.",
-          "title": "Workflow Id",
-          "type": "string"
-        },
-        "step_id": {
-          "description": "From get_workflow's steps list.",
-          "title": "Step Id",
-          "type": "string"
-        },
-        "config": {
-          "additionalProperties": true,
-          "description": "Only the fields to change — call get_step_details first to see current values, get_step_schema for valid fields.",
-          "title": "Config",
-          "type": "object"
-        },
-        "intent": {
-          "default": "",
-          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
-          "title": "Intent",
-          "type": "string"
-        },
-        "reason": {
-          "default": "",
-          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "workflow_id",
-        "step_id",
-        "config"
-      ],
-      "title": "update_stepArguments",
       "type": "object"
     }
   },
@@ -713,19 +387,13 @@
   },
   {
     "name": "publish_workflow",
-    "description": "Publish a workflow, making it live — from this point on, matching\n        form submissions actually run it.\n\n        First call (confirm=false) changes nothing. It runs the same health\n        check as get_workflow — unreachable steps, dead ends, unlabelled\n        branches — and returns them as warnings. A workflow with warnings\n        can still be published; the warnings exist so the user finds out\n        about a broken branch from you, before it goes live, rather than\n        from a submission that silently went nowhere.",
+    "description": "Publish a workflow, making it live — from this point on, matching\n        form submissions actually run it.\n\n        This runs the same health check as get_workflow — unreachable steps,\n        dead ends, unlabelled branches — records warnings in the result, saves\n        a revision, then publishes immediately.",
     "input_schema": {
       "properties": {
         "workflow_id": {
           "description": "From list_workflows.",
           "title": "Workflow Id",
           "type": "string"
-        },
-        "confirm": {
-          "default": false,
-          "description": "Leave false to check the workflow's structure and see what publishing would do. Only pass true after showing that to the user and getting their explicit go-ahead.",
-          "title": "Confirm",
-          "type": "boolean"
         },
         "intent": {
           "default": "",

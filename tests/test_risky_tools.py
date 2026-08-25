@@ -132,15 +132,21 @@ def test_delete_step_reports_incomplete_verify_when_link_survives(monkeypatch):
     assert "did not persist completely" in result.error
 
 
-def test_publish_preview_reports_branch_diagnostics_without_publishing():
+def test_publish_reports_branch_diagnostics_and_publishes(monkeypatch):
+    monkeypatch.setattr(
+        risky.revision_log,
+        "capture_workflow_revision",
+        lambda *args, **kwargs: {"revision_id": "rev_1"},
+    )
     mcp = DummyMCP()
     client = PublishPreviewClient()
     risky.register(mcp, client)
 
     result = mcp.tools["publish_workflow"]("wf_1")
 
-    assert result.needs_confirmation is True
-    assert client.published is False
+    assert result.needs_confirmation is False
+    assert result.published is True
+    assert client.published is True
     assert any("unconnected branch outcome" in warning for warning in result.health_warnings)
     assert any("unlabelled branching link" in warning for warning in result.health_warnings)
     assert any("invalid branch mapping" in warning for warning in result.health_warnings)

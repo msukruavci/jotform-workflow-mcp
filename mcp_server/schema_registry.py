@@ -553,8 +553,9 @@ _OUTCOMES_OVERRIDE: dict[str, list[dict]] = {
 # fixed literal "CUSTOM" on every custom branch and cannot distinguish
 # them (this was the actual bug behind connect_steps failing to resolve
 # a branch by name; see tree_builder.outcome_label). `conditionTerms[].field`
-# must be a real form field id from get_form_fields — this override
-# describes the shape, it does not supply or invent field ids.
+# must be a real form field id from trigger_form_fields, or a visible label
+# that build_workflow_bulk can safely resolve. This override describes the
+# shape, it does not supply or invent field ids.
 #
 # Not injected via get_field_defaults (unlike _OUTCOMES_OVERRIDE above):
 # a conditional branch's whole point is user-chosen names and conditions,
@@ -573,7 +574,7 @@ _OUTCOME_ITEM_FIELDS_OVERRIDE: dict[str, dict[str, str]] = {
         "conditionTermsMatchType": 'string — "All" (AND) or "Any" (OR) across conditionTerms',
         "conditionTerms": (
             "array of {field, operator, value} — field must be a real "
-            "form field id from get_form_fields, never invented. Required "
+            "form field id from trigger_form_fields or a visible field label, never invented. Required "
             "and non-empty for every CUSTOM branch; only the OTHER/catch-all "
             "branch may use conditionTerms=[]. Confirmed operators seen in "
             'real data: "isEmpty", "isFilled", "startsWith", "equals".'

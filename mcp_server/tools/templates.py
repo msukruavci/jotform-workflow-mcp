@@ -15,6 +15,16 @@ class TemplateItem(BaseModel):
     clone_count: int = Field(default=0, description="Usage count")
     steps_summary: list[str] = Field(default_factory=list, description="Step types and names included in the template")
     score: float = Field(description="Relevance score (cosine similarity)")
+    elements_count: int = Field(default=0, description="Total number of workflow elements/steps")
+    links_count: int = Field(default=0, description="Total number of edge connections between steps")
+    elements: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Template element blueprint details for workflow design inspiration.",
+    )
+    links: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Template link blueprint details for workflow design inspiration.",
+    )
 
 
 class TemplateSearchResult(BaseModel):
@@ -43,21 +53,136 @@ class WorkflowTemplateDetail(BaseModel):
     )
 
 
-def search_templates_tool(query: str, top_k: int = 3) -> TemplateSearchResult:
-    k = max(1, min(top_k, 10))
+def _sanitize_template_element(element: dict[str, Any]) -> dict[str, Any]:
+    step_type = str(element.get("type", ""))
+    element_id = element.get("element_id")
+    name = element.get("name") or element.get("title")
+
+    blueprint: dict[str, Any] = {
+        "element_id": element_id,
+        "type": step_type,
+    }
+    if name:
+        blueprint["name"] = str(name)
+
+    if step_type == "workflow_approval":
+        approver = element.get("approver") or element.get("approvalEmail__email__to")
+        if approver:
+            blueprint["approver"] = approver
+        task_desc = element.get("taskDescription")
+        if task_desc:
+            blueprint["taskDescription"] = task_desc
+        outcomes = []
+        for o in element.get("outcomes") or []:
+            if isinstance(o, dict):
+                label = o.get("name") or o.get("text") or o.get("conditionValue")
+                if label:
+                    outcomes.append(str(label))
+            elif isinstance(o, str) and o:
+                outcomes.append(o)
+        if outcomes:
+            blueprint["outcomes"] = outcomes
+
+    elif step_type in ("workflow_send_email", "workflow_reminder_email"):
+        to = element.get("to") or element.get("email__to") or element.get("emailTo")
+        subject = element.get("subject") or element.get("email__subject") or element.get("emailSubject")
+        if to:
+            blueprint["to"] = to
+        if subject:
+            blueprint["subject"] = subject
+
+    elif step_type == "workflow_assign_task":
+        assignee = element.get("assignee") or element.get("assignTaskEmail__email__to")
+        task_desc = element.get("taskDescription")
+        if assignee:
+            blueprint["assignee"] = assignee
+        if task_desc:
+            blueprint["taskDescription"] = task_desc
+        outcomes = []
+        for o in element.get("outcomes") or []:
+            if isinstance(o, dict):
+                label = o.get("name") or o.get("text")
+                if label:
+                    outcomes.append(str(label))
+            elif isinstance(o, str) and o:
+                outcomes.append(o)
+        if outcomes:
+            blueprint["outcomes"] = outcomes
+
+    elif step_type in ("workflow_conditional_branch", "workflow_binary_decision"):
+        outcomes = []
+        for o in element.get("outcomes") or []:
+            if isinstance(o, dict):
+                label = o.get("branchName") or o.get("name") or o.get("conditionValue")
+                if label:
+                    outcomes.append(str(label))
+            elif isinstance(o, str) and o:
+                outcomes.append(o)
+        if outcomes:
+            blueprint["outcomes"] = outcomes
+        cond_terms = element.get("conditionTerms")
+        if cond_terms:
+            blueprint["conditionTerms"] = cond_terms
+
+    elif step_type == "workflow_sign_document":
+        doc_id = element.get("documentID")
+        if doc_id:
+            blueprint["documentID"] = doc_id
+        signer = element.get("signerMapping")
+        if signer:
+            blueprint["signerMapping"] = signer
+
+    elif step_type == "workflow_integration":
+        service = element.get("service") or element.get("integrationType")
+        if service:
+            blueprint["service"] = service
+
+    return blueprint
+
+
+def _sanitize_template_link(link: dict[str, Any]) -> dict[str, Any]:
+    from_elem = link.get("fromElement")
+    to_elem = link.get("toElement")
+    labels = link.get("labels") or []
+    outcome = ""
+    if isinstance(labels, list) and labels and isinstance(labels[0], dict):
+        outcome = str(labels[0].get("label") or "")
+    if not outcome:
+        outcome = str(link.get("outcome") or "")
+
+    clean: dict[str, Any] = {
+        "from": from_elem,
+        "to": to_elem,
+    }
+    if outcome:
+        clean["outcome"] = outcome
+    return clean
+
+
+def search_templates_tool(query: str, top_k: int = 2) -> TemplateSearchResult:
+    k = max(1, min(top_k, 3))
     results = rag_engine.search_templates(query, top_k=k)
-    items = [
-        TemplateItem(
-            id=str(r.get("id")),
-            title=r.get("title", ""),
-            description=r.get("description", ""),
-            tags=str(r.get("tags", "")),
-            clone_count=int(r.get("clone_count") or 0),
-            steps_summary=r.get("steps_summary") or [],
-            score=float(r.get("score", 0.0)),
+    items = []
+    for r in results:
+        raw_elements = r.get("elements") or []
+        raw_links = r.get("links") or []
+        sanitized_elements = [_sanitize_template_element(e) for e in raw_elements if isinstance(e, dict)]
+        sanitized_links = [_sanitize_template_link(l) for l in raw_links if isinstance(l, dict)]
+        items.append(
+            TemplateItem(
+                id=str(r.get("id")),
+                title=r.get("title", ""),
+                description=r.get("description", ""),
+                tags=str(r.get("tags", "")),
+                clone_count=int(r.get("clone_count") or 0),
+                steps_summary=r.get("steps_summary") or [],
+                score=float(r.get("score", 0.0)),
+                elements_count=int(r.get("elements_count") or len(sanitized_elements)),
+                links_count=int(r.get("links_count") or len(sanitized_links)),
+                elements=sanitized_elements,
+                links=sanitized_links,
+            )
         )
-        for r in results
-    ]
     return TemplateSearchResult(query=query, count=len(items), templates=items)
 
 
@@ -94,33 +219,16 @@ def register(mcp: MCPServer) -> None:
         ],
         top_k: Annotated[
             int,
-            Field(description="Number of relevant template references to return (default 3, max 10)"),
-        ] = 3,
+            Field(description="Number of relevant template blueprints to return (default 2, max 3)"),
+        ] = 2,
     ) -> TemplateSearchResult:
         """
-        Search the Jotform workflow template catalog using local FAISS RAG vector similarity.
+        Search and inspect the Jotform workflow template catalog using local FAISS RAG vector similarity.
 
         Use this tool whenever the user asks for workflow ideas, inspiration, or template
         recommendations, or when asked to design/create a new workflow for any domain
         (e.g., leave request, approvals, onboarding, expense, feedback) to discover proven
-        architectures and step patterns.
+        architectures and step patterns. Returns the top matching template blueprints directly;
+        do not call a separate template-detail tool afterward.
         """
         return search_templates_tool(query, top_k)
-
-    @mcp.tool()
-    def get_workflow_template(
-        template_id: Annotated[
-            str,
-            Field(
-                description="The unique ID of the template to inspect in detail (e.g. '242943285550056')."
-            ),
-        ],
-    ) -> WorkflowTemplateDetail:
-        """
-        Retrieve the full architectural blueprint of a workflow template.
-
-        Returns complete element configurations (names, types, approval outcomes/buttons,
-        assigned roles, email templates, timeouts) and edge links connecting each step.
-        Use this to inspect exact configurations or replicate a template's flow structure.
-        """
-        return get_template_detail_tool(template_id)

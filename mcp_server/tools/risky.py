@@ -1,18 +1,4 @@
-"""
-Layer 4: risky.
-
-Every tool here follows a two-call pattern: call once and nothing happens —
-you get back what *would* happen. Call again with confirm=True and it does.
-This is not a suggestion to the model, it's the only way these tools work:
-there is no single call that both previews and acts.
-
-Why this shape and not a yes/no prompt inside the tool: MCP tools are
-synchronous request/response, there's no channel to pause mid-call and wait
-for a person to answer. Forcing two calls means the model must have shown
-the preview and gotten an explicit go-ahead in the conversation before
-confirm=True can mean anything — a model that fabricates confirmation is
-lying to the person, not working around a technical limitation.
-"""
+"""Layer 4: risky write tools."""
 from __future__ import annotations
 
 from typing import Annotated
@@ -272,13 +258,6 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
     @mcp.tool()
     def publish_workflow(
         workflow_id: Annotated[str, Field(description="From list_workflows.")],
-        confirm: Annotated[bool, Field(
-            description=(
-                "Leave false to check the workflow's structure and see "
-                "what publishing would do. Only pass true after showing "
-                "that to the user and getting their explicit go-ahead."
-            )
-        )] = False,
         intent: Annotated[str, INTENT_FIELD] = "",
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> PublishWorkflowResult:
@@ -286,56 +265,43 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         Publish a workflow, making it live — from this point on, matching
         form submissions actually run it.
 
-        First call (confirm=false) changes nothing. It runs the same health
-        check as get_workflow — unreachable steps, dead ends, unlabelled
-        branches — and returns them as warnings. A workflow with warnings
-        can still be published; the warnings exist so the user finds out
-        about a broken branch from you, before it goes live, rather than
-        from a submission that silently went nowhere.
+        This runs the same health check as get_workflow — unreachable steps,
+        dead ends, unlabelled branches — records warnings in the result, saves
+        a revision, then publishes immediately.
         """
         try:
             combined = client.get_workflow_combined(workflow_id)
         except JotformAPIError as e:
             return PublishWorkflowResult(workflow_id=workflow_id, error=str(e))
 
-        if not confirm:
-            elements = [e for e in (combined.get("elements") or []) if isinstance(e, dict)]
-            links = [l for l in (combined.get("links") or []) if isinstance(l, dict)]
-            steps = [{"step_id": e.get("element_id"), "type": e.get("type")} for e in elements]
-            conns = [{"link_id": l.get("link_id"), "from_step": l.get("fromElement"),
-                     "to_step": l.get("toElement")} for l in links]
-            health = graph.analyse(steps, conns)
-            branch_health = workflow_inspector.branch_diagnostics(elements, links)
+        elements = [e for e in (combined.get("elements") or []) if isinstance(e, dict)]
+        links = [l for l in (combined.get("links") or []) if isinstance(l, dict)]
+        steps = [{"step_id": e.get("element_id"), "type": e.get("type")} for e in elements]
+        conns = [{"link_id": l.get("link_id"), "from_step": l.get("fromElement"),
+                 "to_step": l.get("toElement")} for l in links]
+        health = graph.analyse(steps, conns)
+        branch_health = workflow_inspector.branch_diagnostics(elements, links)
 
-            warnings = []
-            if health["unreachable_steps"]:
-                warnings.append(f"{len(health['unreachable_steps'])} step(s) can never run: "
-                               f"{health['unreachable_steps']}")
-            if health["dead_end_steps"]:
-                warnings.append(f"{len(health['dead_end_steps'])} step(s) lead nowhere: "
-                               f"{health['dead_end_steps']}")
-            if health["dangling_links"]:
-                warnings.append(f"broken link(s): {health['dangling_links']}")
-            unconnected_branches = _unconnected_branch_outcomes(elements)
-            if unconnected_branches:
-                warnings.append(f"unconnected branch outcome(s): {unconnected_branches}")
-            if branch_health["unlabelled_branching_steps"]:
-                warnings.append(
-                    "unlabelled branching link(s): "
-                    f"{branch_health['unlabelled_branching_steps']}"
-                )
-            if branch_health["invalid_branch_links"]:
-                warnings.append(
-                    f"invalid branch mapping(s): {branch_health['invalid_branch_links']}"
-                )
-
-            return PublishWorkflowResult(
-                workflow_id=workflow_id, needs_confirmation=True,
-                health_warnings=warnings,
-                hint=(
-                    "Show this to the user, warnings included even if empty. "
-                    "Call again with confirm=true only if they say to proceed."
-                ),
+        warnings = []
+        if health["unreachable_steps"]:
+            warnings.append(f"{len(health['unreachable_steps'])} step(s) can never run: "
+                           f"{health['unreachable_steps']}")
+        if health["dead_end_steps"]:
+            warnings.append(f"{len(health['dead_end_steps'])} step(s) lead nowhere: "
+                           f"{health['dead_end_steps']}")
+        if health["dangling_links"]:
+            warnings.append(f"broken link(s): {health['dangling_links']}")
+        unconnected_branches = _unconnected_branch_outcomes(elements)
+        if unconnected_branches:
+            warnings.append(f"unconnected branch outcome(s): {unconnected_branches}")
+        if branch_health["unlabelled_branching_steps"]:
+            warnings.append(
+                "unlabelled branching link(s): "
+                f"{branch_health['unlabelled_branching_steps']}"
+            )
+        if branch_health["invalid_branch_links"]:
+            warnings.append(
+                f"invalid branch mapping(s): {branch_health['invalid_branch_links']}"
             )
 
         try:
@@ -349,7 +315,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         except JotformAPIError as e:
             return PublishWorkflowResult(workflow_id=workflow_id, error=str(e))
 
-        return PublishWorkflowResult(workflow_id=workflow_id, published=True)
+        return PublishWorkflowResult(
+            workflow_id=workflow_id,
+            health_warnings=warnings,
+            published=True,
+        )
 
 
     @mcp.tool()

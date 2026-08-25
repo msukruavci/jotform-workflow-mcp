@@ -97,7 +97,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             "openai/toolInvocation/invoked": "Workflows loaded",
         },
     )
-    def show_workflows() -> WorkflowListUIResult:
+    async def show_workflows() -> WorkflowListUIResult:
         """
         Show the user's workflows in the interactive workflow list UI.
 
@@ -116,7 +116,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             "openai/toolInvocation/invoked": "Workflow loaded",
         },
     )
-    def show_workflow(
+    async def show_workflow(
         workflow_id: Annotated[
             str,
             Field(description="Workflow id from list_workflows, create_workflow, or a write result."),

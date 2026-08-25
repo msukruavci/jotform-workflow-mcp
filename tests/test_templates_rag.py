@@ -18,15 +18,26 @@ def test_rag_engine_search():
 
 
 def test_search_workflow_templates_tool():
-    res = search_templates_tool(query="vacation approval flow", top_k=3)
+    res = search_templates_tool(query="vacation approval flow")
     assert res.query == "vacation approval flow"
     assert isinstance(res.count, int)
+    assert res.count <= 2
     assert isinstance(res.templates, list)
     if res.templates:
         first = res.templates[0]
         assert first.id
         assert first.title
         assert isinstance(first.steps_summary, list)
+        assert isinstance(first.elements, list)
+        assert isinstance(first.links, list)
+        assert first.elements_count == len(first.elements)
+        assert first.links_count == len(first.links)
+
+
+def test_search_workflow_templates_caps_top_k_at_three():
+    res = search_templates_tool(query="approval flow", top_k=10)
+
+    assert res.count <= 3
 
 
 def test_get_workflow_template_tool():

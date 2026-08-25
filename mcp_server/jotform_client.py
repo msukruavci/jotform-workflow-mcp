@@ -160,6 +160,71 @@ class JotformClient:
         """Return one form's metadata without depending on list pagination."""
         return self._request("GET", f"/form/{form_id}").get("content", {})
 
+    def _fallback_ai_form_payload(self, prompt: str, *, language: str = "en") -> dict:
+        prompt_l = prompt.lower()
+        is_tr = language.lower().startswith("tr") or any(
+            token in prompt_l for token in ("talep", "başvuru", "musteri", "müşteri", "bayi")
+        )
+        title = "Talep Formu" if is_tr else "Request Form"
+        if any(token in prompt_l for token in ("garanti", "warranty", "servis", "service")):
+            title = "Garanti Servis Talep Formu" if is_tr else "Warranty Service Request Form"
+        elif any(token in prompt_l for token in ("iade", "refund", "return", "değişim", "exchange")):
+            title = "İade ve Değişim Talep Formu" if is_tr else "Refund and Exchange Request Form"
+        elif any(token in prompt_l for token in ("bayi", "dealer", "partner")):
+            title = "Bayi Başvuru Formu" if is_tr else "Dealer Application Form"
+        elif any(token in prompt_l for token in ("ekipman", "equipment", "bakım", "maintenance")):
+            title = "Ekipman Bakım Talep Formu" if is_tr else "Equipment Maintenance Request Form"
+
+        labels = {
+            "name": "Ad Soyad" if is_tr else "Full Name",
+            "email": "E-posta Adresi" if is_tr else "Email Address",
+            "phone": "Telefon Numarası" if is_tr else "Phone Number",
+            "category": "Talep Türü" if is_tr else "Request Type",
+            "reference": "Referans / Sipariş / Ürün Numarası" if is_tr else "Reference / Order / Product Number",
+            "details": "Talep Detayları" if is_tr else "Request Details",
+            "urgency": "Öncelik" if is_tr else "Priority",
+        }
+        options = "Düşük|Normal|Yüksek" if is_tr else "Low|Normal|High"
+        questions = {
+            "1": {"type": "control_head", "text": title, "order": "1", "name": "header"},
+            "2": {"type": "control_fullname", "text": labels["name"], "order": "2", "name": "fullName", "required": "Yes"},
+            "3": {"type": "control_email", "text": labels["email"], "order": "3", "name": "email", "required": "Yes"},
+            "4": {"type": "control_phone", "text": labels["phone"], "order": "4", "name": "phone"},
+            "5": {"type": "control_textbox", "text": labels["category"], "order": "5", "name": "requestType", "required": "Yes"},
+            "6": {"type": "control_textbox", "text": labels["reference"], "order": "6", "name": "referenceNumber"},
+            "7": {"type": "control_textarea", "text": labels["details"], "order": "7", "name": "requestDetails", "required": "Yes"},
+            "8": {"type": "control_dropdown", "text": labels["urgency"], "order": "8", "name": "priority", "options": options},
+        }
+        return {
+            "questions": questions,
+            "properties": {"title": title, "height": "600"},
+        }
+
+    def _create_form_with_public_api_fallback(self, prompt: str, *, language: str = "en", reason: str = "") -> dict:
+        form_payload = self._fallback_ai_form_payload(prompt, language=language)
+        created = self._request("PUT", "/form", json_body=form_payload).get("content", {})
+        form_id = (
+            created.get("id")
+            or created.get("formID")
+            or created.get("form_id")
+            or created.get("resource_id")
+        )
+        if not form_id:
+            raise JotformAPIError(0, f"No form id in fallback form response: {created!r}")
+        try:
+            questions = self.get_form_questions(str(form_id))
+        except JotformAPIError:
+            questions = form_payload["questions"]
+        return {
+            "resource_id": str(form_id),
+            "questions": questions,
+            "summary": (
+                "Created through public form API fallback because the Workflow AI form endpoint "
+                f"was unavailable. {reason}".strip()
+            ),
+            "ai_fallback": True,
+        }
+
     def create_form_with_ai(
         self,
         prompt: str,
@@ -175,21 +240,30 @@ class JotformClient:
         the same path on www.jotform.com/API returns "Cross-Site Requests not
         allowed!".
         """
-        return self._request(
-            "POST",
-            "/workflow/copilot/createWorkflowForm",
-            json_body={
-                "prompt": prompt,
-                "formType": form_type,
-                "preferences": {"language": language},
-            },
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "jf-v2-source": "mcp",
-                "jf-v2-target": "workflow-copilot",
-            },
-        ).get("content", {})
+        try:
+            return self._request(
+                "POST",
+                "/workflow/copilot/createWorkflowForm",
+                json_body={
+                    "prompt": prompt,
+                    "formType": form_type,
+                    "preferences": {"language": language},
+                },
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "jf-v2-source": "mcp",
+                    "jf-v2-target": "workflow-copilot",
+                },
+            ).get("content", {})
+        except JotformAPIError as error:
+            if error.status not in (403, 404, 405):
+                raise
+            return self._create_form_with_public_api_fallback(
+                prompt,
+                language=language,
+                reason=f"Original AI endpoint error: {error.status}.",
+            )
 
     # ---------- workflows: read ----------
 

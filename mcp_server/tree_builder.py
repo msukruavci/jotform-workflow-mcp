@@ -139,6 +139,39 @@ def _overlaps(elements: list[dict], candidate_x: float, candidate_y: float, padd
     return False
 
 
+def _vertical_edge_crosses(
+    elements: list[dict],
+    candidate_x: float,
+    parent_y: float,
+    candidate_y: float,
+    *,
+    ignore_ids: set[str] | None = None,
+    padding: float = 12.0,
+) -> bool:
+    """Return true when a same-lane parent->child edge would run through an existing node."""
+    top = min(parent_y, candidate_y)
+    bottom = max(parent_y, candidate_y)
+    if bottom - top <= DEFAULT_ELEMENT_SIZE["height"]:
+        return False
+
+    ignored = ignore_ids or set()
+    for element in elements:
+        if str(element.get("element_id")) in ignored:
+            continue
+        position = _position_of(element)
+        if position is None:
+            continue
+        x, y = position
+        width, height = _size_of(element)
+        left = x - padding
+        right = x + width + padding
+        node_top = y + padding
+        node_bottom = y + height - padding
+        if left <= candidate_x <= right and node_top > top and node_bottom < bottom:
+            return True
+    return False
+
+
 def compute_position(
     elements: list[dict],
     after_step_id: str | int | list[str | int] | None,
@@ -433,11 +466,54 @@ def compute_layered_dag_positions(
 
     placed = list(elements)
     final_positions: dict[str, dict] = {}
+
+    def placed_parent_position(ref: str) -> tuple[dict | None, str | None]:
+        if ref == "start":
+            return ({"x": start_x, "y": start_y}, str(start_step_id))
+        if ref in final_positions:
+            return final_positions[ref], f"layout:{ref}"
+        return None, None
+
+    def edge_crosses_placed(ref: str, candidate_x: float, candidate_y: float) -> bool:
+        for parent in parents.get(ref, []):
+            parent_pos, parent_id = placed_parent_position(parent)
+            if parent_pos is None or parent_id is None:
+                continue
+            parent_x = float(parent_pos["x"])
+            parent_y = float(parent_pos["y"])
+            if abs(parent_x - candidate_x) > 1.0:
+                continue
+            if _vertical_edge_crosses(
+                placed,
+                candidate_x,
+                parent_y,
+                candidate_y,
+                ignore_ids={parent_id},
+            ):
+                return True
+        return False
+
     for ref in sorted(ordered_refs, key=lambda item: (raw_positions[item]["y"], raw_positions[item]["x"])):
-        x = raw_positions[ref]["x"]
+        base_x = raw_positions[ref]["x"]
         y = raw_positions[ref]["y"]
-        while _overlaps(placed, x, y):
-            x += BRANCH_X
+        ref_parents = parents.get(ref, [])
+        if len(ref_parents) == 1:
+            parent = ref_parents[0]
+            if (
+                parent in final_positions
+                and parent in raw_positions
+                and abs(raw_positions[parent]["x"] - base_x) <= 1.0
+            ):
+                base_x = final_positions[parent]["x"]
+        x_offsets = [0.0]
+        for column in range(1, 100):
+            x_offsets.extend([-column * BRANCH_X, column * BRANCH_X])
+        x = base_x
+        for offset in x_offsets:
+            candidate_x = base_x + offset
+            if not _overlaps(placed, candidate_x, y) and not edge_crosses_placed(ref, candidate_x, y):
+                x = candidate_x
+                break
         pos = {"x": round(x, 1), "y": round(y, 1)}
         final_positions[ref] = pos
         placed.append({
@@ -639,8 +715,8 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
     if not isinstance(outcomes, list) or not outcomes:
         raise ValidationError(
             "workflow_conditional_branch.outcomes must be a non-empty list. "
-            "Use get_form_fields first, then provide at least one branch with "
-            "conditionTerms using real form field ids."
+            "Use trigger_form_fields from build_workflow_bulk/get_workflow, then "
+            "provide at least one branch with conditionTerms using real form field ids."
         )
 
     normalized = []
@@ -661,7 +737,7 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
             raise ValidationError(
                 f"Branch '{branch_name}' needs at least one conditionTerms "
                 "entry. Do not create CUSTOM branches with conditionTerms=[]. "
-                "Call get_form_fields and use a real field id, operator, and value."
+                "Use a visible trigger form field label or a real field id, operator, and value."
             )
         if terms is None:
             terms = []
@@ -679,7 +755,7 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
             if not field:
                 raise ValidationError(
                     f"Branch '{branch_name or condition_value}' conditionTerms[{term_idx}] needs field. "
-                    "Use a field_id returned by get_form_fields."
+                    "Use a visible trigger form field label or a field_id from trigger_form_fields."
                 )
             if not operator:
                 raise ValidationError(
