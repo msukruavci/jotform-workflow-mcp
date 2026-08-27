@@ -13,14 +13,13 @@ from mcp_server.jotform_client import JotformClient
 from mcp_server.models import WorkflowListUIResult, WorkflowPreviewUIResult
 from mcp_server.tools.reading import read_workflow_list, read_workflow_preview
 
-WORKFLOW_UI_RESOURCE_URI = "ui://jotform/workflows/v35.html"
+WORKFLOW_UI_RESOURCE_VERSION = 42
+WORKFLOW_UI_RESOURCE_URI = (
+    f"ui://jotform/workflows/v{WORKFLOW_UI_RESOURCE_VERSION}.html"
+)
 WORKFLOW_UI_LEGACY_RESOURCE_URIS: tuple[str, ...] = tuple(
-    f"ui://jotform/workflows/v{i}.html" for i in range(1, 29)
-) + (
-    "ui://jotform/workflows/v31.html",
-    "ui://jotform/workflows/v32.html",
-    "ui://jotform/workflows/v33.html",
-    "ui://jotform/workflows/v34.html",
+    f"ui://jotform/workflows/v{version}.html"
+    for version in range(1, WORKFLOW_UI_RESOURCE_VERSION)
 )
 LOGGER = logging.getLogger(__name__)
 

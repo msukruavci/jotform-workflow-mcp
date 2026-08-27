@@ -83,11 +83,21 @@ def _server():
 
 
 def test_ui_resource_is_registered_with_mcp_app_mime_type():
+    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v42.html"
+
     server = _server()
     resources = asyncio.run(server.list_resources())
 
     resource = next(item for item in resources if str(item.uri) == WORKFLOW_UI_RESOURCE_URI)
     assert resource.mime_type == APP_MIME_TYPE
+    assert "domain" not in resource.meta["ui"]
+    assert resource.meta["ui"]["csp"] == {
+        "connectDomains": ["https://api.jotform.com", "https://*.jotform.com"],
+        "resourceDomains": ["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
+        "frameDomains": [],
+        "baseUriDomains": [],
+    }
+    assert resource.meta["ui"]["prefersBorder"] is True
 
     contents = list(asyncio.run(server.read_resource(WORKFLOW_UI_RESOURCE_URI)))
     assert contents[0].mime_type == APP_MIME_TYPE
@@ -111,6 +121,9 @@ def test_show_tools_are_bound_to_the_ui_resource():
         assert by_name[name].meta["ui"]["resourceUri"] == WORKFLOW_UI_RESOURCE_URI
         assert by_name[name].meta["openai/outputTemplate"] == WORKFLOW_UI_RESOURCE_URI
         assert by_name[name].meta["openai/widgetAccessible"] is True
+
+    assert by_name["show_workflows"].title == "Jotform Workflows"
+    assert by_name["show_workflow"].title == "Jotform Workflow"
 
 
 def test_show_workflows_returns_versioned_authoritative_payload():

@@ -19,6 +19,7 @@ FAST_TOOL_NAMES = frozenset({
     "get_form_fields",
     "search_workflow_templates",
     "build_workflow_bulk",
+    "update_step_settings",
     "publish_workflow",
     "delete_workflow",
 })

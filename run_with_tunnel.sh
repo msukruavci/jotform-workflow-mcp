@@ -35,8 +35,9 @@ fi
 echo "   -> HTTP sunucusu ayakta (PID=$API_PID), http://127.0.0.1:$PORT/sse"
 echo
 
-echo "2) Tünel açılıyor — aşağıda çıkan URL'in sonuna /sse ekleyip"
+echo "2) Tünel açılıyor — aşağıda çıkan URL'in sonuna /mcp ekleyip"
 echo "   MCP connector'ının Server URL alanına onu yapıştır."
+echo "   (Mevcut /sse bağlantıları da geriye uyumluluk için çalışmaya devam eder.)"
 echo
 
 if command -v cloudflared >/dev/null 2>&1 || [[ -x /home/avci/Desktop/jotform-mcp-phase1/cloudflared ]]; then
