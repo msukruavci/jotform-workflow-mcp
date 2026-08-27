@@ -371,21 +371,6 @@ class UpdateStepResult(BaseModel):
     hint: str | None = None
 
 
-class UpdateStepSettingsResult(BaseModel):
-    """Result returned by the narrow, UI-facing settings update tool."""
-
-    step_id: str | None = None
-    type: str | None = None
-    config: dict = Field(
-        default_factory=dict,
-        description="Authoritative step configuration after the update",
-    )
-    updated_fields: list[str] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    error: str | None = None
-    hint: str | None = None
-
-
 class StepSpec(BaseModel):
     ref: str = Field(
         description="A unique temporary reference name for this step in the bulk request (e.g. 'approval_1', 'notify_mgr', 'reject_email')."

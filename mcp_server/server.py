@@ -10,8 +10,7 @@ Tool layers:
                  inspect_workflow_gaps, list_forms, get_form_fields
   4. building  — create_workflow, create_workflow_with_ai_form, build_workflow_bulk,
                  add_step, connect_steps, disconnect_steps, update_step
-  5. UI settings — update_step_settings (strict embedded-UI allowlist)
-  6. risky     — delete_step, publish_workflow, restore_workflow_revision,
+  5. risky     — delete_step, publish_workflow, restore_workflow_revision,
                  delete_workflow (confirm=True required to act)
 """
 from dotenv import load_dotenv
@@ -25,7 +24,6 @@ from mcp_server.tools import (  # noqa: E402
     reading,
     risky,
     templates,
-    ui_settings,
 )
 from mcp_server.ui import create_workflow_apps  # noqa: E402
 
@@ -57,7 +55,6 @@ discovery.register(mcp)
 reading.register(mcp, client)
 templates.register(mcp)
 building.register(mcp, client)
-ui_settings.register(mcp, client)
 risky.register(mcp, client)
 
 if __name__ == "__main__":
