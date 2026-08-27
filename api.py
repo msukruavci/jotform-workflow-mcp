@@ -62,8 +62,51 @@ sse_endpoint = app.routes[0].endpoint
 app.routes.append(Route("/", endpoint=sse_endpoint, methods=["GET", "POST", "OPTIONS", "HEAD"]))
 
 
+import time
+import uuid
+from starlette.responses import JSONResponse
+from mcp_server.telemetry_context import bind_context, new_id
+
+# Dynamic session tracker
+_GLOBAL_LAST_REQUEST_TIME: float = time.time()
+_CURRENT_GLOBAL_SESSION_ID: str = uuid.uuid4().hex
+SESSION_INACTIVITY_TIMEOUT_SEC: float = 300.0  # 5 minutes
+
+
+def resolve_session_id(request) -> str:
+    global _GLOBAL_LAST_REQUEST_TIME, _CURRENT_GLOBAL_SESSION_ID
+
+    query = dict(request.query_params)
+    headers = dict(request.headers)
+
+    # 1. Explicit query param (e.g. ?session_id=..., ?chat_id=..., ?conversation_id=...)
+    for key in ("session_id", "chat_id", "conversation_id", "sessionId", "session"):
+        if query.get(key):
+            return str(query[key]).strip()
+
+    # 2. Explicit header (e.g. x-session-id, session-id, mcp-session-id, etc.)
+    for key in ("x-session-id", "session-id", "mcp-session-id", "chat-id", "conversation-id", "x-conversation-id"):
+        if headers.get(key):
+            return str(headers[key]).strip()
+
+    now = time.time()
+    # 3. New SSE handshake on GET /sse typically starts a new client stream
+    if request.method == "GET" and request.url.path in ("/sse", "/"):
+        _CURRENT_GLOBAL_SESSION_ID = uuid.uuid4().hex
+        _GLOBAL_LAST_REQUEST_TIME = now
+        return _CURRENT_GLOBAL_SESSION_ID
+
+    # 4. Inactivity timeout: if > 5 minutes passed since last request, auto-rotate session
+    if (now - _GLOBAL_LAST_REQUEST_TIME) > SESSION_INACTIVITY_TIMEOUT_SEC:
+        _CURRENT_GLOBAL_SESSION_ID = uuid.uuid4().hex
+
+    _GLOBAL_LAST_REQUEST_TIME = now
+    return _CURRENT_GLOBAL_SESSION_ID
+
+
 class AuditHTTPMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
+        session_id = resolve_session_id(request)
         body = await request.body()
         headers = dict(request.headers)
         query = dict(request.query_params)
@@ -80,29 +123,52 @@ class AuditHTTPMiddleware(BaseHTTPMiddleware):
             provider = "openai"
             model = "ChatGPT Developer Connector"
 
-        write_event(
-            "mcp.http.request",
-            method=request.method,
-            path=request.url.path,
-            query=query,
-            client=request.client.host if request.client else None,
-            headers=headers,
-            provider=provider,
-            model=model,
-            body=body.decode("utf-8", errors="replace") if body else "",
-        )
-        response = await call_next(request)
-        write_event(
-            "mcp.http.response",
-            method=request.method,
-            path=request.url.path,
-            status_code=response.status_code,
-            provider=provider,
-            model=model,
-        )
-        return response
+        trace_id = headers.get("x-trace-id") or headers.get("trace-id") or headers.get("traceparent") or headers.get("b3") or uuid.uuid4().hex
+        parent_span_id = headers.get("x-span-id") or headers.get("span-id")
+        span_id = uuid.uuid4().hex
+
+        with bind_context(session_id=session_id, provider=provider, model=model, trace_id=trace_id, span_id=span_id, parent_span_id=parent_span_id):
+            write_event(
+                "mcp.http.request",
+                method=request.method,
+                path=request.url.path,
+                query=query,
+                client=request.client.host if request.client else None,
+                headers=headers,
+                provider=provider,
+                model=model,
+                trace_id=trace_id,
+                span_id=span_id,
+                parent_span_id=parent_span_id,
+                body=body.decode("utf-8", errors="replace") if body else "",
+            )
+            response = await call_next(request)
+            write_event(
+                "mcp.http.response",
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+                provider=provider,
+                model=model,
+                trace_id=trace_id,
+                span_id=span_id,
+            )
+            response.headers["X-Session-ID"] = session_id
+            response.headers["X-Trace-Id"] = trace_id
+            if provider:
+                response.headers["X-Provider"] = provider
+            return response
 
 
+async def reset_session_endpoint(request):
+    global _CURRENT_GLOBAL_SESSION_ID, _GLOBAL_LAST_REQUEST_TIME
+    _CURRENT_GLOBAL_SESSION_ID = uuid.uuid4().hex
+    _GLOBAL_LAST_REQUEST_TIME = time.time()
+    return JSONResponse({"status": "ok", "new_session_id": _CURRENT_GLOBAL_SESSION_ID})
+
+
+app.routes.append(Route("/session/reset", endpoint=reset_session_endpoint, methods=["GET", "POST"]))
+app.routes.append(Route("/session/new", endpoint=reset_session_endpoint, methods=["GET", "POST"]))
 app.add_middleware(AuditHTTPMiddleware)
 
 # ChatGPT and Claude connectors need to reach this from different origins —

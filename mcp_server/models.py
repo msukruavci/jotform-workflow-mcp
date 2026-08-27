@@ -396,9 +396,10 @@ class StepSpec(BaseModel):
     config: dict = Field(
         default_factory=dict,
         description=(
-            "Fields for this step type — check get_step_schema. For condition "
-            "terms in build_workflow_bulk, prefer the trigger form's visible "
-            "field label. Known field_id/qid/name values are also accepted; "
+            "Fields for this step type — check get_step_schema. Always provide full draft "
+            "config with realistic role-based draft emails (e.g. 'advisor@university.edu', "
+            "'manager@company.com', '{Email Address}'). For condition terms in build_workflow_bulk, "
+            "prefer the trigger form's visible field label. Known field_id/qid/name values are also accepted; "
             "the bulk tool resolves them after creating/reading the trigger form "
             "and refuses ambiguous labels instead of guessing."
         )

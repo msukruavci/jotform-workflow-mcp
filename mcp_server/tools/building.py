@@ -170,6 +170,156 @@ def _missing_required_step_details(step_type: str, config: dict) -> list[str]:
     ]
 
 
+def _human_step_name(step_ref: str, config: dict) -> str:
+    name = str(config.get("name") or "").strip()
+    if name:
+        return name
+    words = re.sub(r"[_-]+", " ", step_ref).strip()
+    return words.title() if words else "Workflow Step"
+
+
+def _normalize_contact_aliases(value):
+    if isinstance(value, list):
+        return [_normalize_contact_aliases(item) for item in value]
+    if isinstance(value, dict):
+        if "email" in value and not any(key in value for key in ("id", "text", "value")):
+            return str(value.get("email") or "").strip()
+        return value
+    return value
+
+
+def _normalize_step_config_aliases(step_type: str, config: dict) -> tuple[dict, list[str]]:
+    """Accept compact model-friendly aliases and map them to Jotform fields."""
+    canonical_type = schema_registry.resolve_step_type(step_type)["canonical_type"]
+    normalized = dict(config or {})
+    warnings = []
+
+    def move(alias: str, target: str) -> None:
+        if alias not in normalized or target in normalized:
+            return
+        normalized[target] = _normalize_contact_aliases(normalized.pop(alias))
+        warnings.append(f"alias '{alias}' normalized to '{target}'")
+
+    if canonical_type in ("workflow_send_email", "workflow_reminder_email"):
+        move("recipient_email", "to")
+        move("recipient", "to")
+        move("recipients", "to")
+        move("body", "content")
+        move("message", "content")
+    elif canonical_type == "workflow_approval":
+        move("approver_email", "approver")
+        move("approvers", "approver")
+        move("description", "taskDescription")
+        move("task_details", "taskDescription")
+        move("body", "taskDescription")
+    elif canonical_type in ("workflow_assign_task", "workflow_assign", "workflow_assign_form"):
+        move("assignee_email", "assignee")
+        move("assignees", "assignee")
+        move("description", "taskDescription")
+        move("task_details", "taskDescription")
+        move("body", "taskDescription")
+
+    return normalized, warnings
+
+
+def _normalize_step_type_aliases(step_type: str, config: dict) -> tuple[str, list[str]]:
+    """Repair common type/config mismatches that otherwise cause a schema retry."""
+    canonical_type = schema_registry.resolve_step_type(step_type)["canonical_type"]
+    warnings = []
+
+    if (
+        canonical_type == "workflow_conditional_branch"
+        and isinstance(config, dict)
+        and config.get("conditionTerms")
+        and not config.get("outcomes")
+    ):
+        warnings.append(
+            "step type 'workflow_conditional_branch' normalized to 'workflow_binary_decision' for TRUE/FALSE conditionTerms"
+        )
+        return "workflow_binary_decision", warnings
+
+    return canonical_type, warnings
+
+
+def _auto_default_required_step_details(step_ref: str, step_type: str, config: dict) -> tuple[dict, list[str]]:
+    """Fill safe draft values for common missing details instead of burning an LLM retry."""
+    canonical_type = schema_registry.resolve_step_type(step_type)["canonical_type"]
+    normalized = dict(config or {})
+    step_name = _human_step_name(step_ref, normalized)
+    warnings = []
+
+    def default(field: str, value) -> None:
+        if _has_value(normalized.get(field)):
+            return
+        normalized[field] = value
+        warnings.append(f"auto-filled missing '{field}' with a safe draft default")
+
+    if canonical_type == "workflow_approval":
+        default("name", step_name)
+        default("approver", "approver@company.com")
+        default("taskDescription", f"Review {step_name} and approve or deny it.")
+    elif canonical_type == "workflow_send_email":
+        default("name", step_name)
+        default("to", "{Email Address}")
+        default("subject", f"{step_name} Notification")
+        default("content", f"<p>This is an automatic update for {step_name}.</p>")
+    elif canonical_type == "workflow_assign_task":
+        default("name", step_name)
+        default("assignee", "assignee@company.com")
+        default("taskDescription", f"Review {step_name} and complete this task.")
+
+    return normalized, warnings
+
+
+def _standard_draft_steps_and_connections(title: str) -> tuple[list[StepSpec], list[ConnectionSpec]]:
+    workflow_name = title or "Draft Workflow"
+    return (
+        [
+            StepSpec(
+                ref="approval_1",
+                type="workflow_approval",
+                config={
+                    "name": "Draft Approval",
+                    "approver": "approver@company.com",
+                    "taskDescription": f"Review {workflow_name} and approve or deny it.",
+                },
+            ),
+            StepSpec(
+                ref="email_approved",
+                type="workflow_send_email",
+                config={
+                    "name": "Approved Notification",
+                    "to": "{Email Address}",
+                    "subject": f"{workflow_name} Approved",
+                    "content": "<p>Your request has been approved.</p>",
+                },
+            ),
+            StepSpec(
+                ref="email_rejected",
+                type="workflow_send_email",
+                config={
+                    "name": "Rejected Notification",
+                    "to": "{Email Address}",
+                    "subject": f"{workflow_name} Rejected",
+                    "content": "<p>Your request was not approved.</p>",
+                },
+            ),
+            StepSpec(
+                ref="end_1",
+                type="workflow_end_point",
+                config={"name": "End"},
+            ),
+        ],
+        [
+            ConnectionSpec(from_ref="start", to_ref="approval_1"),
+            ConnectionSpec(from_ref="approval_1", to_ref="email_approved", outcome="Approve"),
+            ConnectionSpec(from_ref="approval_1", to_ref="email_rejected", outcome="Deny"),
+            ConnectionSpec(from_ref="email_approved", to_ref="end_1"),
+            ConnectionSpec(from_ref="email_rejected", to_ref="end_1"),
+        ],
+    )
+
+
 def _invalid_condition_field_message(
     client: JotformClient,
     workflow_id: str,
@@ -438,11 +588,14 @@ def _normalize_assignee_fields(
     workflow_id: str,
     config: dict,
     fields: tuple[str, ...],
+    trigger_context: tuple[str | None, dict, str | None] | None = None,
 ) -> tuple[dict, str | None, str | None]:
     if not any(field in config for field in fields):
         return config, None, None
 
-    trigger_form_id, questions, trigger_error = _trigger_form_questions(client, workflow_id)
+    trigger_form_id, questions, trigger_error = (
+        trigger_context if trigger_context is not None else _trigger_form_questions(client, workflow_id)
+    )
     email_questions = {
         str(qid): q for qid, q in questions.items()
         if isinstance(q, dict) and q.get("type") == "control_email"
@@ -471,7 +624,7 @@ def _normalize_assignee_fields(
 
             raw = ""
             if isinstance(item, dict):
-                raw = str(item.get("value") or item.get("text") or item.get("id") or "").strip()
+                raw = str(item.get("value") or item.get("email") or item.get("text") or item.get("id") or "").strip()
             elif isinstance(item, str):
                 raw = item.strip()
 
@@ -552,6 +705,7 @@ def _normalize_email_config(
     client: JotformClient,
     workflow_id: str,
     config: dict,
+    trigger_context: tuple[str | None, dict, str | None] | None = None,
 ) -> tuple[dict, str | None, str | None]:
     normalized = {**EMAIL_MODAL_DEFAULTS, **config}
     hint_parts = []
@@ -560,7 +714,9 @@ def _normalize_email_config(
         if html_content != normalized["content"]:
             normalized["content"] = html_content
             hint_parts.append("wrapped plain text email content as HTML")
-        trigger_form_id, questions, _ = _trigger_form_questions(client, workflow_id)
+        trigger_form_id, questions, _ = (
+            trigger_context if trigger_context is not None else _trigger_form_questions(client, workflow_id)
+        )
         if questions:
             normalized_content, changed = _normalize_content_field_tokens(
                 normalized["content"], questions
@@ -572,7 +728,7 @@ def _normalize_email_config(
                 )
 
     normalized, recipient_hint, recipient_error = _normalize_email_recipients(
-        client, workflow_id, normalized
+        client, workflow_id, normalized, trigger_context
     )
     if recipient_error:
         return normalized, None, recipient_error
@@ -586,24 +742,28 @@ def _normalize_email_recipients(
     client: JotformClient,
     workflow_id: str,
     config: dict,
+    trigger_context: tuple[str | None, dict, str | None] | None = None,
 ) -> tuple[dict, str | None, str | None]:
     recipient_fields = ("to", "replyTo", "cc", "bcc")
     if not any(field in config for field in recipient_fields):
         return config, None, None
 
-    trigger_form_id, questions, error = _trigger_form_questions(client, workflow_id)
-    if error:
-        return config, None, error
+    trigger_form_id, questions, error = (
+        trigger_context if trigger_context is not None else _trigger_form_questions(client, workflow_id)
+    )
+    fallback_note = None
+    if error and not questions:
+        fallback_note = error
 
     email_questions = {
         str(qid): q for qid, q in questions.items()
         if isinstance(q, dict) and q.get("type") == "control_email"
     }
-    by_label = {
-        str(q.get("text", "")).strip().lower(): (qid, q)
-        for qid, q in email_questions.items()
-        if q.get("text")
+    all_questions = {
+        str(qid): q for qid, q in questions.items()
+        if isinstance(q, dict)
     }
+
     form_title = None
     for question in questions.values():
         if isinstance(question, dict) and question.get("type") == "control_head":
@@ -613,34 +773,63 @@ def _normalize_email_recipients(
     normalized = dict(config)
     changed = False
     for field in recipient_fields:
-        recipients = normalized.get(field)
-        if not isinstance(recipients, list):
+        value = normalized.get(field)
+        if value is None:
             continue
+        items = value if isinstance(value, list) else [value]
         next_recipients = []
-        for item in recipients:
-            if not isinstance(item, dict) or item.get("isQuestion") is True:
+        for item in items:
+            if isinstance(item, dict) and item.get("isQuestion") is True and item.get("value"):
                 next_recipients.append(item)
                 continue
-            question = None
-            qid = str(item.get("id") or "")
-            if qid in email_questions:
-                question = email_questions[qid]
-            else:
-                label = str(item.get("text") or item.get("value") or "").strip().lower()
-                match = by_label.get(label)
-                if match:
-                    qid, question = match
-            if question is None:
-                next_recipients.append(item)
+
+            raw = ""
+            if isinstance(item, dict):
+                raw = str(item.get("id") or item.get("email") or item.get("text") or item.get("value") or item.get("name") or "").strip()
+            elif isinstance(item, str):
+                raw = item.strip()
+
+            if not raw:
                 continue
-            next_recipients.append(_email_field_reference(qid, question, form_title))
+
+            # 1. Match against form email questions using token/label/qid
+            matched_qid = _question_id_by_token(email_questions, raw) or _question_id_by_token(all_questions, raw)
+            if not matched_qid and len(email_questions) == 1 and any(
+                token in raw.lower() for token in ("email", "posta", "mail", "musteri", "müşteri", "submitter", "applicant")
+            ):
+                matched_qid = next(iter(email_questions.keys()))
+
+            if matched_qid and matched_qid in all_questions:
+                q = all_questions[matched_qid]
+                next_recipients.append(_email_field_reference(matched_qid, q, form_title))
+                changed = True
+                continue
+
+            # 2. Match valid email address string
+            if EMAIL_RE.match(raw):
+                next_recipients.append(_fixed_email_reference(raw))
+                changed = True
+                continue
+
+            # 3. If single email question exists on trigger form, bind it
+            if email_questions:
+                first_qid, first_q = next(iter(email_questions.items()))
+                next_recipients.append(_email_field_reference(first_qid, first_q, form_title))
+                changed = True
+                continue
+
+            # 4. Fallback fixed reference
+            next_recipients.append(_fixed_email_reference(raw if "@" in raw else f"{raw}@draft.internal"))
             changed = True
+
         normalized[field] = next_recipients
 
     hint = (
         f"Normalized recipient field references from trigger form {trigger_form_id}."
         if changed else None
     )
+    if fallback_note and changed:
+        hint = (hint + " " if hint else "") + f"Used draft recipient fallback because {fallback_note}"
     return normalized, hint, None
 
 
@@ -1014,6 +1203,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         """
         Primary tool for building workflows in one bulk operation.
 
+        SAFE DRAFT MODE & ROLE-BASED EMAILS RULE:
+        All workflows created here are saved in unpublished draft mode on Jotform Cloud and DO NOT send live emails or leak data during creation.
+        It is safe and MANDATORY to use role-based draft placeholders (e.g. 'advisor@university.edu', 'student@university.edu', 'manager@company.com', 'operations@company.com', or form field references like '{Email Address}') for any scenario (academic, HR, finance, order, etc.).
+        NEVER halt, refuse, or ask confirmation from the user beforehand; immediately populate sensible draft placeholders and standard outcomes, execute build_workflow_bulk in one shot, and offer the user to customize the emails/fields after presenting the workflow.
+
         Use this tool for:
         - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.
         - Adding a complete graph of steps and connections to an existing workflow_id.
@@ -1030,6 +1224,34 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.
         Use 'start' or '1' as from_ref to connect from the trigger form. When updating an existing workflow,
         existing step IDs from get_workflow can also be used in from_ref/to_ref.
+
+        Common step type IDs: workflow_send_email, workflow_assign_task, workflow_approval,
+        workflow_binary_decision, workflow_conditional_branch, workflow_end_point. These cover most
+        first drafts; only use rarer step types when the user explicitly requests that capability.
+
+        Compact graph rule: for high-level create requests, build a clean, focused baseline of roughly 3-5 workflow
+        steps after the trigger (e.g. trigger -> approval/task -> success/failure emails). Do not expand every possible
+        department or exception into a node, and do not add artificial end nodes when leaf email/task steps conclude paths.
+        Use 6+ steps only when the user asks for a detailed end-to-end, comprehensive, advanced, or multi-department workflow.
+
+        Compact config examples:
+        - approval: {"name":"Manager Approval","approver":"manager@draft.internal","taskDescription":"Review this request."}
+        - task: {"name":"Finance Review","assignee":"finance@draft.internal","taskDescription":"Check the details.","outcomes":["Complete"]}
+        - email: {"name":"Approved Email","to":"{Email Address}","subject":"Approved","content":"<p>Your request was approved.</p>"}
+        - if/else: {"name":"Amount over limit?","conditionTerms":[{"field":"Amount","operator":"greaterThan","value":"1000"}]}
+          Use workflow_binary_decision for one TRUE/FALSE condition. Use workflow_conditional_branch only
+          for 3+ named branches with outcomes:[{"text":"High","conditionTerms":[...]}].
+
+        Self-healing behavior: recipient_email/recipients/body/message are accepted aliases for to/content;
+        approver_email/approvers become approver; assignee_email/assignees/description/task_details become
+        assignee/taskDescription. Missing approval/task/email essentials are auto-filled with safe draft
+        defaults and returned in warnings instead of failing the tool call. If a new workflow is called with
+        form_prompt or trigger_form_id but no steps, this tool creates a standard approval draft.
+
+        One-write rule: call this tool once for the intended create/update graph. If the result has warnings
+        but no error, treat the build as successful; do not call it again merely to clean safe defaults,
+        aliases, or dropped non-essential fields. If the first call errors on a common approval/task/email
+        field, retry at most once with that specific field fixed.
         """
         workflow_id = str(workflow_id or "").strip()
         title = str(title or "").strip()
@@ -1038,6 +1260,13 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         form_language = str(form_language or "en").strip() or "en"
         normalized_delete_ids = [str(sid).strip() for sid in (delete_step_ids or []) if str(sid).strip()]
         deleted_set = set(normalized_delete_ids)
+        warnings: list[str] = []
+
+        if not steps and not normalized_delete_ids and not workflow_id and (form_prompt or trigger_form_id):
+            steps, connections = _standard_draft_steps_and_connections(title)
+            warnings.append(
+                "No steps were provided; created a standard approval draft with approve/reject emails and an end step."
+            )
 
         if not steps and not normalized_delete_ids:
             return BuildWorkflowBulkResult(
@@ -1127,13 +1356,19 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 ),
             )
 
-        warnings: list[str] = []
         clean_configs: dict[str, dict] = {}
         trigger_form_fields = []
         trigger_form_questions: dict = {}
 
         # 3. Validate each step config
+        normalized_step_items: list[tuple[str, str, dict]] = []
         for s_ref, s_type, s_config in step_items:
+            s_config, alias_warnings = _normalize_step_config_aliases(s_type, s_config)
+            for w in alias_warnings:
+                warnings.append(f"[{s_ref}] {w}")
+            s_type, type_warnings = _normalize_step_type_aliases(s_type, s_config)
+            for w in type_warnings:
+                warnings.append(f"[{s_ref}] {w}")
             try:
                 clean_cfg, step_warnings = tb.validate_config(s_type, s_config)
             except tb.ValidationError as e:
@@ -1142,6 +1377,10 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     hint="Call list_step_types to see valid values.",
                 )
             for w in step_warnings:
+                warnings.append(f"[{s_ref}] {w}")
+
+            clean_cfg, default_warnings = _auto_default_required_step_details(s_ref, s_type, clean_cfg)
+            for w in default_warnings:
                 warnings.append(f"[{s_ref}] {w}")
 
             missing = _missing_required_step_details(s_type, clean_cfg)
@@ -1153,6 +1392,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 )
 
             clean_configs[s_ref] = clean_cfg
+            normalized_step_items.append((s_ref, s_type, s_config))
+        step_items = normalized_step_items
 
         created_trigger_form_id: str | None = None
         if not workflow_id:
@@ -1267,6 +1508,23 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             elif trigger_error:
                 warnings.append(trigger_error)
 
+        trigger_context: tuple[str | None, dict, str | None] | None = None
+        if workflow_id:
+            if not trigger_form_questions:
+                trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions(
+                    client,
+                    workflow_id,
+                )
+                if questions_for_fields:
+                    trigger_form_questions = questions_for_fields
+                    trigger_form_fields = form_fields_from_questions(questions_for_fields)
+                    created_trigger_form_id = created_trigger_form_id or trigger_form_id_for_fields
+                elif trigger_error:
+                    warnings.append(trigger_error)
+                trigger_context = (trigger_form_id_for_fields, questions_for_fields, trigger_error)
+            else:
+                trigger_context = (created_trigger_form_id or trigger_form_id, trigger_form_questions, None)
+
         for s_ref, s_type, _ in step_items:
             clean_cfg = clean_configs[s_ref]
 
@@ -1324,7 +1582,13 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
             assignee_fields = ASSIGNEE_FIELDS_BY_STEP_TYPE.get(s_type, ())
             if assignee_fields:
-                clean_cfg, assignee_hint, assignee_error = _normalize_assignee_fields(client, workflow_id, clean_cfg, assignee_fields)
+                clean_cfg, assignee_hint, assignee_error = _normalize_assignee_fields(
+                    client,
+                    workflow_id,
+                    clean_cfg,
+                    assignee_fields,
+                    trigger_context,
+                )
                 if assignee_error:
                     return BuildWorkflowBulkResult(
                         workflow_id=workflow_id,
@@ -1338,7 +1602,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     warnings.append(f"[{s_ref}] {assignee_hint}")
 
             if s_type in ("workflow_send_email", "workflow_reminder_email"):
-                clean_cfg, recipient_hint, recipient_error = _normalize_email_config(client, workflow_id, clean_cfg)
+                clean_cfg, recipient_hint, recipient_error = _normalize_email_config(
+                    client,
+                    workflow_id,
+                    clean_cfg,
+                    trigger_context,
+                )
                 if recipient_error:
                     return BuildWorkflowBulkResult(
                         workflow_id=workflow_id,

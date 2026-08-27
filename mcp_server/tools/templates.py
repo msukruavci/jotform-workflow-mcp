@@ -53,10 +53,16 @@ class WorkflowTemplateDetail(BaseModel):
     )
 
 
+
 def _sanitize_template_element(element: dict[str, Any]) -> dict[str, Any]:
-    step_type = str(element.get("type", ""))
-    element_id = element.get("element_id")
-    name = element.get("name") or element.get("title")
+    """Extract a minimal, lightweight blueprint of a template step.
+    
+    Keeps only essential structural fields (id, type, name, outcomes) to maximize
+    LLM generation speed and reduce token overhead.
+    """
+    element_id = str(element.get("element_id") or element.get("id") or "")
+    step_type = str(element.get("type") or "")
+    name = element.get("name") or element.get("header")
 
     blueprint: dict[str, Any] = {
         "element_id": element_id,
@@ -65,77 +71,17 @@ def _sanitize_template_element(element: dict[str, Any]) -> dict[str, Any]:
     if name:
         blueprint["name"] = str(name)
 
-    if step_type == "workflow_approval":
-        approver = element.get("approver") or element.get("approvalEmail__email__to")
-        if approver:
-            blueprint["approver"] = approver
-        task_desc = element.get("taskDescription")
-        if task_desc:
-            blueprint["taskDescription"] = task_desc
-        outcomes = []
-        for o in element.get("outcomes") or []:
-            if isinstance(o, dict):
-                label = o.get("name") or o.get("text") or o.get("conditionValue")
-                if label:
-                    outcomes.append(str(label))
-            elif isinstance(o, str) and o:
-                outcomes.append(o)
-        if outcomes:
-            blueprint["outcomes"] = outcomes
-
-    elif step_type in ("workflow_send_email", "workflow_reminder_email"):
-        to = element.get("to") or element.get("email__to") or element.get("emailTo")
-        subject = element.get("subject") or element.get("email__subject") or element.get("emailSubject")
-        if to:
-            blueprint["to"] = to
-        if subject:
-            blueprint["subject"] = subject
-
-    elif step_type == "workflow_assign_task":
-        assignee = element.get("assignee") or element.get("assignTaskEmail__email__to")
-        task_desc = element.get("taskDescription")
-        if assignee:
-            blueprint["assignee"] = assignee
-        if task_desc:
-            blueprint["taskDescription"] = task_desc
-        outcomes = []
-        for o in element.get("outcomes") or []:
-            if isinstance(o, dict):
-                label = o.get("name") or o.get("text")
-                if label:
-                    outcomes.append(str(label))
-            elif isinstance(o, str) and o:
-                outcomes.append(o)
-        if outcomes:
-            blueprint["outcomes"] = outcomes
-
-    elif step_type in ("workflow_conditional_branch", "workflow_binary_decision"):
-        outcomes = []
-        for o in element.get("outcomes") or []:
-            if isinstance(o, dict):
-                label = o.get("branchName") or o.get("name") or o.get("conditionValue")
-                if label:
-                    outcomes.append(str(label))
-            elif isinstance(o, str) and o:
-                outcomes.append(o)
-        if outcomes:
-            blueprint["outcomes"] = outcomes
-        cond_terms = element.get("conditionTerms")
-        if cond_terms:
-            blueprint["conditionTerms"] = cond_terms
-
-    elif step_type == "workflow_sign_document":
-        doc_id = element.get("documentID")
-        if doc_id:
-            blueprint["documentID"] = doc_id
-        signer = element.get("signerMapping")
-        if signer:
-            blueprint["signerMapping"] = signer
-
-    elif step_type == "workflow_integration":
-        service = element.get("service") or element.get("integrationType")
-        if service:
-            blueprint["service"] = service
+    raw_outcomes = element.get("outcomes") or []
+    outcomes: list[str] = []
+    for o in raw_outcomes:
+        if isinstance(o, dict):
+            label = o.get("branchName") or o.get("name") or o.get("text") or o.get("conditionValue")
+            if label:
+                outcomes.append(str(label))
+        elif isinstance(o, str) and o:
+            outcomes.append(o)
+    if outcomes:
+        blueprint["outcomes"] = outcomes
 
     return blueprint
 
@@ -177,8 +123,8 @@ def search_templates_tool(query: str, top_k: int = 2) -> TemplateSearchResult:
                 clone_count=int(r.get("clone_count") or 0),
                 steps_summary=r.get("steps_summary") or [],
                 score=float(r.get("score", 0.0)),
-                elements_count=int(r.get("elements_count") or len(sanitized_elements)),
-                links_count=int(r.get("links_count") or len(sanitized_links)),
+                elements_count=len(sanitized_elements),
+                links_count=len(sanitized_links),
                 elements=sanitized_elements,
                 links=sanitized_links,
             )
@@ -224,6 +170,8 @@ def register(mcp: MCPServer) -> None:
     ) -> TemplateSearchResult:
         """
         Search and inspect the Jotform workflow template catalog using local FAISS RAG vector similarity.
+
+        SAFE DRAFT NOTE: Templates provide blueprints with placeholder emails. All workflows in this system are built in safe draft mode. Never refuse or halt workflow building over placeholder emails; build the workflow first and invite customization afterward.
 
         Use this tool whenever the user asks for workflow ideas, inspiration, or template
         recommendations, or when asked to design/create a new workflow for any domain

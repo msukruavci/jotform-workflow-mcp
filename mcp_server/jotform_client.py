@@ -113,6 +113,13 @@ class JotformClient:
         params = dict(params or {})
         params["apiKey"] = self.api_key
         url = f"{BASE_URL}{path}"
+        
+        headers = dict(headers or {})
+        from mcp_server.telemetry_context import get_current_field
+        trace_id = get_current_field("trace_id")
+        if trace_id:
+            headers["X-Trace-Id"] = trace_id
+
         try:
             resp = log_jotform_request(
                 method=method,

@@ -28,6 +28,8 @@ class DummyClient:
         self.created_forms = []
         self.created_workflows = []
         self.bound_trigger_forms = []
+        self.get_workflow_combined_calls = []
+        self.get_form_questions_calls = []
 
     def get_elements(self, workflow_id):
         return list(self.elements)
@@ -40,6 +42,7 @@ class DummyClient:
         return {}
 
     def get_workflow_combined(self, workflow_id):
+        self.get_workflow_combined_calls.append(workflow_id)
         return {
             "workflow": {"id": workflow_id, "title": "Demo"},
             "elements": list(self.elements),
@@ -47,6 +50,7 @@ class DummyClient:
         }
 
     def get_form_questions(self, form_id):
+        self.get_form_questions_calls.append(form_id)
         return {
             "1": {"qid": "1", "text": "Request Form", "type": "control_head"},
             "1_name": {"text": "Name", "type": "control_textbox"},
@@ -176,6 +180,173 @@ def test_build_workflow_bulk_creates_workflow_with_ai_form_when_workflow_id_omit
     assert client.created_workflows == ["Access Request Workflow"]
     assert client.bound_trigger_forms == [("wf_new_1", "form_ai_1")]
     assert client.update_calls[0]["workflow_id"] == "wf_new_1"
+
+
+def test_build_workflow_bulk_auto_defaults_common_missing_details_and_aliases():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(
+            ref="approval",
+            type="workflow_approval",
+            config={"approver_email": "boss@company.com"},
+        ),
+        StepSpec(
+            ref="task",
+            type="workflow_assign_task",
+            config={"assignee_email": "ops@company.com"},
+        ),
+        StepSpec(
+            ref="email",
+            type="workflow_send_email",
+            config={"recipient_email": {"email": "requester@company.com"}, "body": "Done."},
+        ),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="start", to_ref="approval"),
+        ConnectionSpec(from_ref="approval", to_ref="task", outcome="Approve"),
+        ConnectionSpec(from_ref="task", to_ref="email", outcome="Complete"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error is None
+    assert any("alias 'approver_email' normalized to 'approver'" in warning for warning in result.warnings)
+    assert any("auto-filled missing 'taskDescription'" in warning for warning in result.warnings)
+    assert any("alias 'body' normalized to 'content'" in warning for warning in result.warnings)
+
+    created = {entry["elementID"]: entry["data"] for entry in client.update_calls[0]["elements"]}
+    assert created[2]["approver"][0]["value"] == "boss@company.com"
+    assert created[2]["taskDescription"] == "Review Approval and approve or deny it."
+    assert created[3]["assignee"][0]["value"] == "ops@company.com"
+    assert created[3]["taskDescription"] == "Review Task and complete this task."
+    assert created[4]["to"][0]["value"] == "requester@company.com"
+    assert created[4]["subject"] == "Email Notification"
+
+
+def test_build_workflow_bulk_reuses_trigger_form_questions_during_normalization():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(
+            ref="approval",
+            type="workflow_approval",
+            config={
+                "name": "Manager Approval",
+                "approver": "manager@company.com",
+                "taskDescription": "Review the request.",
+            },
+        ),
+        StepSpec(
+            ref="branch",
+            type="workflow_binary_decision",
+            config={
+                "name": "Email present?",
+                "conditionTerms": [{"field": "Email", "operator": "contains", "value": "@"}],
+            },
+        ),
+        StepSpec(
+            ref="email_ok",
+            type="workflow_send_email",
+            config={
+                "name": "Approved Email",
+                "to": "{Email}",
+                "subject": "Approved",
+                "content": "Approved for {Email}.",
+            },
+        ),
+        StepSpec(
+            ref="email_no",
+            type="workflow_send_email",
+            config={
+                "name": "Rejected Email",
+                "to": "{Email}",
+                "subject": "Rejected",
+                "content": "Rejected for {Email}.",
+            },
+        ),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="start", to_ref="approval"),
+        ConnectionSpec(from_ref="approval", to_ref="branch", outcome="Approve"),
+        ConnectionSpec(from_ref="branch", to_ref="email_ok", outcome="TRUE"),
+        ConnectionSpec(from_ref="branch", to_ref="email_no", outcome="FALSE"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error is None
+    # One read discovers trigger form fields, one read captures the revision snapshot.
+    assert client.get_workflow_combined_calls == ["wf_1", "wf_1"]
+    assert client.get_form_questions_calls == ["form_1"]
+
+
+def test_build_workflow_bulk_repairs_conditional_branch_with_binary_terms():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    steps = [
+        StepSpec(
+            ref="branch",
+            type="workflow_conditional_branch",
+            config={
+                "name": "Email present?",
+                "conditionTerms": [{"field": "Email", "operator": "contains", "value": "@"}],
+            },
+        ),
+        StepSpec(
+            ref="email_ok",
+            type="workflow_send_email",
+            config={"name": "Email OK", "to": "{Email}", "subject": "OK", "content": "OK"},
+        ),
+        StepSpec(
+            ref="email_no",
+            type="workflow_send_email",
+            config={"name": "Email Missing", "to": "{Email}", "subject": "Missing", "content": "Missing"},
+        ),
+    ]
+    connections = [
+        ConnectionSpec(from_ref="start", to_ref="branch"),
+        ConnectionSpec(from_ref="branch", to_ref="email_ok", outcome="TRUE"),
+        ConnectionSpec(from_ref="branch", to_ref="email_no", outcome="FALSE"),
+    ]
+
+    result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
+
+    assert result.error is None
+    assert any("normalized to 'workflow_binary_decision'" in warning for warning in result.warnings)
+    created = {entry["elementID"]: entry["data"] for entry in client.update_calls[0]["elements"]}
+    assert created[2]["type"] == "workflow_binary_decision"
+
+
+def test_build_workflow_bulk_recovers_form_prompt_only_with_standard_draft():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    result = mcp.tools["build_workflow_bulk"](
+        title="Fast Draft",
+        form_prompt="Create a request form with requester email.",
+    )
+
+    assert result.error is None
+    assert result.workflow_id == "wf_new_1"
+    assert result.trigger_form_id == "form_ai_1"
+    assert result.created_steps == {
+        "approval_1": "2",
+        "email_approved": "3",
+        "email_rejected": "4",
+        "end_1": "5",
+    }
+    assert result.created_links_count == 5
+    assert any("No steps were provided" in warning for warning in result.warnings)
+    assert client.created_forms
+    assert client.created_workflows == ["Fast Draft"]
 
 
 def test_build_workflow_bulk_normalizes_condition_field_labels_after_ai_form_creation():
@@ -757,4 +928,3 @@ def test_build_workflow_bulk_rejects_deleting_start_point():
     assert result.error
     assert "Cannot delete workflow start point" in result.error
     assert client.update_calls == []
-

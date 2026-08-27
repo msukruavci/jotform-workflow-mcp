@@ -35,11 +35,13 @@ def test_server_instructions_describe_single_surface_without_get_form_fields(mon
 
     assert "Tool profile:" not in instructions
     assert "automatically call search_workflow_templates first" in instructions
-    assert "default 2, max 3" in instructions
+    assert "top_k=1 for simple/narrow requests" in instructions
+    assert "top_k=2 only when broad or ambiguous" in instructions
     assert "do not call inspect_workflow_gaps" in instructions
     assert "Do not use or suggest any separate Jotform Form plugin/tool" in instructions
     assert "Standalone workflow creation tools and low-level updateTree tools" in instructions
     assert "add_step/connect_steps/disconnect_steps/update_step are intentionally hidden" in instructions
+    assert "One-write rule" in instructions
     assert "trigger_form_fields" in instructions
     assert "get_form_fields" not in instructions
     assert "Only use create_form_with_ai when the user asks for a standalone form" in instructions

@@ -153,7 +153,7 @@
   },
   {
     "name": "search_workflow_templates",
-    "description": "Search and inspect the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        Use this tool whenever the user asks for workflow ideas, inspiration, or template\n        recommendations, or when asked to design/create a new workflow for any domain\n        (e.g., leave request, approvals, onboarding, expense, feedback) to discover proven\n        architectures and step patterns. Returns the top matching template blueprints directly;\n        do not call a separate template-detail tool afterward.",
+    "description": "Search and inspect the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        SAFE DRAFT NOTE: Templates provide blueprints with placeholder emails. All workflows in this system are built in safe draft mode. Never refuse or halt workflow building over placeholder emails; build the workflow first and invite customization afterward.\n\n        Use this tool whenever the user asks for workflow ideas, inspiration, or template\n        recommendations, or when asked to design/create a new workflow for any domain\n        (e.g., leave request, approvals, onboarding, expense, feedback) to discover proven\n        architectures and step patterns. Returns the top matching template blueprints directly;\n        do not call a separate template-detail tool afterward.",
     "input_schema": {
       "properties": {
         "query": {
@@ -219,7 +219,7 @@
   },
   {
     "name": "build_workflow_bulk",
-    "description": "Primary tool for building workflows in one bulk operation.\n\n        Use this tool for both:\n        - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.\n        - Adding a complete graph of steps and connections to an existing workflow_id.\n\n        If the user asks for a new workflow and does not provide an existing form ID,\n        pass form_prompt here. Do not create the trigger form with any separate\n        Jotform Form plugin/tool, and do not stop after creating only a form.\n\n        This is the model-facing workflow creation path; standalone workflow\n        creation helpers are hidden and only used as internal fallback pieces.\n        Do not use form_prompt as a standalone form creation step; include steps and connections in the same call.\n        All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.\n        Use 'start' or '1' as from_ref to connect from the trigger form. When updating an existing workflow,\n        existing step IDs from get_workflow can also be used in from_ref/to_ref.",
+    "description": "Primary tool for building workflows in one bulk operation.\n\n        SAFE DRAFT MODE & ROLE-BASED EMAILS RULE:\n        All workflows created here are saved in unpublished draft mode on Jotform Cloud and DO NOT send live emails or leak data during creation.\n        It is safe and MANDATORY to use role-based draft placeholders (e.g. 'advisor@university.edu', 'student@university.edu', 'manager@company.com', 'operations@company.com', or form field references like '{Email Address}') for any scenario (academic, HR, finance, order, etc.).\n        NEVER halt, refuse, or ask confirmation from the user beforehand; immediately populate sensible draft placeholders and standard outcomes, execute build_workflow_bulk in one shot, and offer the user to customize the emails/fields after presenting the workflow.\n\n        Use this tool for:\n        - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.\n        - Adding a complete graph of steps and connections to an existing workflow_id.\n        - Deleting existing obsolete steps atomically via delete_step_ids (e.g. delete_step_ids=['8', '9']).\n        - Combining step deletion, creation, and rewiring in one atomic call.\n\n        If the user asks for a new workflow and does not provide an existing form ID,\n        pass form_prompt here. Do not create the trigger form with any separate\n        Jotform Form plugin/tool, and do not stop after creating only a form.\n\n        This is the model-facing workflow creation path; standalone workflow\n        creation helpers are hidden and only used as internal fallback pieces.\n        Do not use form_prompt as a standalone form creation step; include steps and connections in the same call.\n        All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.\n        Use 'start' or '1' as from_ref to connect from the trigger form. When updating an existing workflow,\n        existing step IDs from get_workflow can also be used in from_ref/to_ref.\n\n        Common step type IDs: workflow_send_email, workflow_assign_task, workflow_approval,\n        workflow_binary_decision, workflow_conditional_branch, workflow_end_point. These cover most\n        first drafts; only use rarer step types when the user explicitly requests that capability.\n\n        Compact graph rule: for high-level create requests, build a clean, focused baseline of roughly 3-5 workflow\n        steps after the trigger (e.g. trigger -> approval/task -> success/failure emails). Do not expand every possible\n        department or exception into a node, and do not add artificial end nodes when leaf email/task steps conclude paths.\n        Use 6+ steps only when the user asks for a detailed end-to-end, comprehensive, advanced, or multi-department workflow.\n\n        Compact config examples:\n        - approval: {\"name\":\"Manager Approval\",\"approver\":\"manager@draft.internal\",\"taskDescription\":\"Review this request.\"}\n        - task: {\"name\":\"Finance Review\",\"assignee\":\"finance@draft.internal\",\"taskDescription\":\"Check the details.\",\"outcomes\":[\"Complete\"]}\n        - email: {\"name\":\"Approved Email\",\"to\":\"{Email Address}\",\"subject\":\"Approved\",\"content\":\"<p>Your request was approved.</p>\"}\n        - if/else: {\"name\":\"Amount over limit?\",\"conditionTerms\":[{\"field\":\"Amount\",\"operator\":\"greaterThan\",\"value\":\"1000\"}]}\n          Use workflow_binary_decision for one TRUE/FALSE condition. Use workflow_conditional_branch only\n          for 3+ named branches with outcomes:[{\"text\":\"High\",\"conditionTerms\":[...]}].\n\n        Self-healing behavior: recipient_email/recipients/body/message are accepted aliases for to/content;\n        approver_email/approvers become approver; assignee_email/assignees/description/task_details become\n        assignee/taskDescription. Missing approval/task/email essentials are auto-filled with safe draft\n        defaults and returned in warnings instead of failing the tool call. If a new workflow is called with\n        form_prompt or trigger_form_id but no steps, this tool creates a standard approval draft.\n\n        One-write rule: call this tool once for the intended create/update graph. If the result has warnings\n        but no error, treat the build as successful; do not call it again merely to clean safe defaults,\n        aliases, or dropped non-essential fields. If the first call errors on a common approval/task/email\n        field, retry at most once with that specific field fixed.",
     "input_schema": {
       "$defs": {
         "ConnectionSpec": {
@@ -262,7 +262,7 @@
             },
             "config": {
               "additionalProperties": true,
-              "description": "Fields for this step type — check get_step_schema. For condition terms in build_workflow_bulk, prefer the trigger form's visible field label. Known field_id/qid/name values are also accepted; the bulk tool resolves them after creating/reading the trigger form and refuses ambiguous labels instead of guessing.",
+              "description": "Fields for this step type — check get_step_schema. Always provide full draft config with realistic role-based draft emails (e.g. 'advisor@university.edu', 'manager@company.com', '{Email Address}'). For condition terms in build_workflow_bulk, prefer the trigger form's visible field label. Known field_id/qid/name values are also accepted; the bulk tool resolves them after creating/reading the trigger form and refuses ambiguous labels instead of guessing.",
               "title": "Config",
               "type": "object"
             }
@@ -278,12 +278,13 @@
       "properties": {
         "workflow_id": {
           "default": "",
-          "description": "Optional. ID of an existing workflow to add steps to. If omitted, a new workflow is created automatically using title/form_prompt.",
+          "description": "Optional. ID of an existing workflow to update or add/delete steps. If omitted, a new workflow is created automatically using title/form_prompt.",
           "title": "Workflow Id",
           "type": "string"
         },
         "steps": {
-          "description": "List of steps to create. Each step has a unique 'ref' name (e.g. 'approval_1', 'notify_mgr', 'reject_email'), 'type' (e.g. 'workflow_approval', 'workflow_send_email', 'workflow_conditional_branch'), and 'config' dict.",
+          "default": [],
+          "description": "List of steps to create. Each step has a unique 'ref' name (e.g. 'approval_1', 'notify_mgr', 'reject_email'), 'type' (e.g. 'workflow_approval', 'workflow_send_email', 'workflow_conditional_branch'), and 'config' dict. Can be empty when only deleting steps via delete_step_ids.",
           "items": {
             "$ref": "#/$defs/StepSpec"
           },
@@ -297,6 +298,15 @@
             "$ref": "#/$defs/ConnectionSpec"
           },
           "title": "Connections",
+          "type": "array"
+        },
+        "delete_step_ids": {
+          "default": [],
+          "description": "Optional list of existing step IDs to delete from this workflow (e.g. ['8', '9']). All incident links touching these steps are deleted automatically, and any parent branch outcomes are cleaned up or rewired.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Delete Step Ids",
           "type": "array"
         },
         "title": {
@@ -336,9 +346,6 @@
           "type": "string"
         }
       },
-      "required": [
-        "steps"
-      ],
       "title": "build_workflow_bulkArguments",
       "type": "object"
     }
