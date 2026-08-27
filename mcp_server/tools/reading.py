@@ -396,7 +396,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         condition terms, and so on.
 
         get_workflow only summarizes steps; use this when you need to know
-        exactly how one step is set up, for example before changing it.
+        exactly how one step is set up.
         """
         return read_step_detail(client, workflow_id, step_id)
 
