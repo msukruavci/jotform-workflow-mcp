@@ -363,6 +363,32 @@ def test_normalize_assignee_fields_accepts_trigger_email_field():
     assert normalized["assignee"][0]["value"] == "{q3_email1}"
 
 
+def test_normalize_assignee_fields_resolves_field_token_string():
+    client = DummyClient()
+    # DummyClient has questions: q3 is "Email Address"
+    normalized, hint, error = building._normalize_assignee_fields(
+        client,
+        "wf_1",
+        {"assignee": "{Email Address}"},
+        ("assignee",),
+    )
+
+    assert error is None
+    assert hint
+    assert normalized["assignee"][0]["isQuestion"] is True
+    assert normalized["assignee"][0]["value"] == "{q3_email1}"
+
+
+def test_exact_field_id_wins_over_a_colliding_question_name():
+    questions = {
+        "2_email": {"text": "Student Email", "type": "control_email"},
+        "9": {"name": "2_email", "text": "Legacy Alias", "type": "control_textbox"},
+    }
+
+    assert building._question_id_by_token(questions, "2_email") == "2_email"
+
+
+
 def test_connect_assign_task_requires_named_outcome():
     mcp = DummyMCP()
     client = DummyClient()

@@ -135,6 +135,17 @@ of the normal model-facing surface. For workflow creation, branching changes,
 new steps, rewiring, step deletions, or content updates, use `build_workflow_bulk` with the
 complete intended graph, step configs, and optional `delete_step_ids` (e.g. `delete_step_ids=['8', '9']`). When replacing or removing steps, `build_workflow_bulk` performs deletions and additions atomically in one shot.
 
+**External & Canvas Edits Rule.** Jotform Cloud is authoritative for every
+existing workflow. When the user says they changed a workflow on the website,
+in the visual builder, or in the Canvas UI, reload it with `get_workflow` or
+`show_workflow` before using any remembered step/link IDs. Before every new
+mutation of an existing workflow, obtain a fresh live `revision_id` (and
+`updated_at` when available), use IDs only from that snapshot, and pass the
+token as `expected_revision_id` to `build_workflow_bulk`. On `conflict=true`,
+never retry from memory: reload the live graph, explain the conflict, and
+rebuild the intended diff. This does not add a read to the brand-new workflow
+creation sequence.
+
 **Use revisions for undo.** Mutating tools automatically save a full workflow
 snapshot before they write. If the user asks what changed or wants to go
 back, call `list_workflow_revisions`. To restore the previous state, call

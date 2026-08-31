@@ -24,12 +24,19 @@ from mcp.server import MCPServer
 from pydantic import Field
 
 from mcp_server import revision_log, schema_registry, tree_builder as tb, workflow_inspector
-from mcp_server.jotform_client import JotformAPIError, JotformClient
+from mcp_server.jotform_client import (
+    ConflictError,
+    JotformAPIError,
+    JotformClient,
+    workflow_revision_id,
+    workflow_updated_at,
+)
 from mcp_server.models import (
     AddStepResult, BuildWorkflowBulkResult, ConnectStepsResult, ConnectionSpec,
     CreateAIFormResult, CreateWorkflowResult,
     CreateWorkflowWithAIFormResult,
     DisconnectStepsResult, StepSpec, UpdateStepResult,
+    WorkflowCanvasDiff, WorkflowCanvasDiffResult,
 )
 from mcp_server.tools.reading import form_fields_from_questions
 
@@ -428,7 +435,17 @@ def _question_name_by_token(questions: dict, token: str) -> str | None:
 
 
 def _question_id_by_token(questions: dict, token: str) -> str | None:
-    wanted = token.strip().strip("{}").lower()
+    raw_wanted = token.strip().strip("{}")
+
+    # create_form_with_ai returns these exact dictionary keys as field_id.
+    # Give an exact field ID absolute precedence over aliases, names, labels,
+    # and fuzzy matching so the decoupled two-step path is deterministic even
+    # when another question happens to have a colliding name or label.
+    for qid, question in questions.items():
+        if isinstance(question, dict) and str(qid) == raw_wanted:
+            return str(qid)
+
+    wanted = raw_wanted.lower()
     normalized_wanted = _field_lookup_key(wanted)
     email_aliases = {"email", "emailaddress", "eposta", "epostaadresi", "mail"}
 
@@ -632,6 +649,19 @@ def _normalize_assignee_fields(
                 next_items.append(item)
                 continue
 
+            # 1. Match against form email questions using token/label/qid
+            matched_qid = _question_id_by_token(email_questions, raw) or _question_id_by_token(questions, raw)
+            if not matched_qid and len(email_questions) == 1 and any(
+                token in raw.lower() for token in ("email", "posta", "mail", "musteri", "müşteri", "submitter", "applicant")
+            ):
+                matched_qid = next(iter(email_questions.keys()))
+
+            if matched_qid and matched_qid in questions:
+                q = questions[matched_qid]
+                next_items.append(_email_field_reference(matched_qid, q, form_title))
+                changed = True
+                continue
+
             qid = str((item or {}).get("id") if isinstance(item, dict) else raw)
             question = email_questions.get(qid)
             if question is None and isinstance(item, dict):
@@ -644,8 +674,18 @@ def _normalize_assignee_fields(
                 changed = True
                 continue
 
-            if EMAIL_RE.match(raw):
-                next_items.append(_fixed_email_reference(raw))
+            # 2. Match valid email address string
+            clean_raw = raw.strip("{}").strip()
+            if EMAIL_RE.match(raw) or EMAIL_RE.match(clean_raw):
+                next_items.append(_fixed_email_reference(clean_raw if EMAIL_RE.match(clean_raw) else raw))
+                changed = True
+                continue
+
+            # 3. Fallback fixed draft email reference for draft placeholder tokens like {Advisor Email}
+            if raw.startswith("{") and raw.endswith("}"):
+                clean_slug = re.sub(r"[^a-zA-Z0-9]+", ".", clean_raw).strip(".")
+                draft_email = f"{clean_slug}@draft.internal" if clean_slug else f"{field}@draft.internal"
+                next_items.append(_fixed_email_reference(draft_email))
                 changed = True
                 continue
 
@@ -889,6 +929,22 @@ def _extract_ai_form_id(content: dict) -> str | None:
     return None
 
 
+def _extract_ai_form_title(content: dict, questions: dict) -> str | None:
+    """Return the best available form title from an AI/public API response."""
+    for key in ("title", "form_title", "name"):
+        value = content.get(key)
+        if value:
+            return str(value)
+    for question in questions.values():
+        if (
+            isinstance(question, dict)
+            and question.get("type") == "control_head"
+            and question.get("text")
+        ):
+            return str(question["text"])
+    return None
+
+
 def _bind_and_verify_trigger(
     client: JotformClient,
     workflow_id: str,
@@ -940,10 +996,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
     def create_form_with_ai(
         prompt: Annotated[str, Field(
             description=(
-                "Natural-language description of the form to create. Ask the "
-                "user what fields, labels, language, and purpose they want "
-                "before calling this. The created form can be passed to "
-                "create_workflow as trigger_form_id."
+                "Call this first when building a new workflow that needs an "
+                "AI-generated trigger form. Describe the form's purpose, "
+                "fields, labels, and language. The result includes form_id "
+                "and the exact fields to pass into the subsequent "
+                "build_workflow_bulk call."
             )
         )],
         form_type: Annotated[str, Field(
@@ -958,8 +1015,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         """
         Create a new Jotform form from an AI prompt.
 
-        Use this only after the user chooses "create a new form" for a
-        workflow trigger and describes what the form should collect.
+        Call this first when building a new workflow that needs an AI-generated
+        trigger form. It returns form_id plus the exact field_id, label, type,
+        required, and options values to use in the subsequent
+        build_workflow_bulk(trigger_form_id=..., steps=..., connections=...)
+        call. No separate form-field lookup is needed.
         """
         try:
             content = client.create_form_with_ai(prompt, form_type=form_type, language=language)
@@ -971,7 +1031,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             return CreateAIFormResult(error=f"No form id in AI form response: {content!r}")
 
         questions = content.get("questions") if isinstance(content.get("questions"), dict) else {}
-        title = (questions.get("1") or {}).get("text") if isinstance(questions.get("1"), dict) else None
+        title = _extract_ai_form_title(content, questions)
         return CreateAIFormResult(
             form_id=form_id,
             form_url=_form_url(form_id),
@@ -992,7 +1052,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "with the user: existing form or new AI-created form. For an "
                 "existing form, call list_forms first and use the selected id "
                 "here. For a complete new workflow, prefer build_workflow_bulk "
-                "with form_prompt/title instead of this low-level tool. "
+                "with the form_id returned by create_form_with_ai instead of "
+                "this low-level tool. "
                 "Binding takes two API calls under the "
                 "hood and is verified by reading the start point back."
             )
@@ -1010,13 +1071,15 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         """
         Low-level helper to create a new workflow with a trigger form.
 
-        For ordinary new-workflow requests, prefer build_workflow_bulk with
-        title/form_prompt or title/trigger_form_id so creation and step wiring
-        happen in one tool call. Use this tool only for manual/partial setup.
+        For ordinary new-workflow requests, first call create_form_with_ai,
+        then call build_workflow_bulk with title/trigger_form_id so workflow
+        creation and step wiring happen in one bulk write. Use this tool only
+        for manual/partial setup.
 
         1. Use an existing form — then call list_forms and pass the chosen
            form id as trigger_form_id.
-        2. Create a new form first — prefer build_workflow_bulk with form_prompt.
+        2. Create a new form first — call create_form_with_ai, then pass its
+           form_id to build_workflow_bulk as trigger_form_id.
         3. No trigger form yet — only proceed with allow_without_trigger=true
            if the user explicitly asks for a draft workflow without one.
 
@@ -1029,9 +1092,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     "A workflow needs a trigger form. Before creating it, ask "
                     "the user whether to use an existing form or create a new "
                     "AI form. Existing form: call list_forms, then pass the "
-                    "chosen form id as trigger_form_id. New form: use "
-                    "build_workflow_bulk with title, form_prompt, steps, and "
-                    "connections. Only use "
+                    "chosen form id as trigger_form_id. New form: call "
+                    "create_form_with_ai first, then use build_workflow_bulk "
+                    "with title, trigger_form_id, steps, and connections. Only use "
                     "allow_without_trigger=true if the user explicitly asks "
                     "for a formsuz/no-trigger draft."
                 ),
@@ -1081,9 +1144,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         """
         Low-level helper to create a new AI-generated form, then a workflow triggered by it.
 
-        For complete new workflows, prefer a single build_workflow_bulk call
-        with title, form_prompt, steps, and connections. Use this helper only
-        when the user explicitly wants form/workflow creation without steps yet.
+        For complete new workflows, prefer create_form_with_ai followed by one
+        build_workflow_bulk call with title, trigger_form_id, steps, and
+        connections. Use this hidden compatibility helper only for legacy flows.
         """
         try:
             form_content = client.create_form_with_ai(
@@ -1127,7 +1190,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             )
 
         questions = form_content.get("questions") if isinstance(form_content.get("questions"), dict) else {}
-        form_title = (questions.get("1") or {}).get("text") if isinstance(questions.get("1"), dict) else None
+        form_title = _extract_ai_form_title(form_content, questions)
         return CreateWorkflowWithAIFormResult(
             workflow_id=str(workflow_id),
             workflow_url=_workflow_url(str(workflow_id)),
@@ -1145,7 +1208,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         workflow_id: Annotated[str, Field(
             description=(
                 "Optional. ID of an existing workflow to update or add/delete steps. If omitted, "
-                "a new workflow is created automatically using title/form_prompt."
+                "a new workflow is created automatically using title and trigger_form_id."
             )
         )] = "",
         *,
@@ -1175,33 +1238,47 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "branch outcomes are cleaned up or rewired."
             )
         )] = [],
+        delete_link_ids: Annotated[list[str], Field(
+            default=[],
+            description=(
+                "Optional existing connection IDs to remove in the same updateTree write. "
+                "Primarily used by semantic Canvas diffs and connection rewires."
+            ),
+        )] = [],
         title: Annotated[str, Field(
             description="Optional. Name of the workflow when creating a new one."
         )] = "",
         trigger_form_id: Annotated[str, Field(
             description=(
-                "Optional. Existing form ID to bind as trigger form when creating a new workflow. "
-                "Use only when the user explicitly provides an existing form ID or asks to use an existing form; "
-                "otherwise use form_prompt so this Workflow MCP creates the trigger form."
+                "Primary trigger binding for a new workflow. Pass the form_id obtained from "
+                "create_form_with_ai, or an existing form ID explicitly selected by the user, "
+                "along with the complete steps and connections."
             )
         )] = "",
         form_prompt: Annotated[str, Field(
             description=(
-                "Optional. Natural language description to automatically generate an AI trigger form for this workflow. "
-                "Use this for new trigger forms instead of any separate Jotform Form plugin/tool. "
-                "Include the expected form purpose and fields. "
-                "Use only in the same build_workflow_bulk call that includes the complete steps and connections; "
-                "do not call this tool with form_prompt only or empty steps."
+                "Optional backward-compatible fallback that generates an AI trigger form inside this call. "
+                "The recommended path is create_form_with_ai first, then pass its form_id as trigger_form_id "
+                "with the complete steps and connections. If both are supplied, trigger_form_id takes precedence."
             )
         )] = "",
         form_language: Annotated[str, Field(
             description='Form language for AI trigger form generation. Use "tr" for Turkish, otherwise "en".'
         )] = "en",
+        expected_revision_id: Annotated[str, Field(
+            description=(
+                "Optional optimistic-lock token from get_workflow.revision_id. For an existing "
+                "workflow, pass it so an external or Canvas edit cannot be overwritten silently."
+            )
+        )] = "",
+        base_updated_at: Annotated[str, Field(
+            description="Optional get_workflow.updated_at fallback for timestamp-based clients."
+        )] = "",
         intent: Annotated[str, INTENT_FIELD] = "",
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> BuildWorkflowBulkResult:
         """
-        Primary tool for building workflows in one bulk operation.
+        Primary tool for building a workflow graph in one bulk operation.
 
         SAFE DRAFT MODE & ROLE-BASED EMAILS RULE:
         All workflows created here are saved in unpublished draft mode on Jotform Cloud and DO NOT send live emails or leak data during creation.
@@ -1209,18 +1286,22 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         NEVER halt, refuse, or ask confirmation from the user beforehand; immediately populate sensible draft placeholders and standard outcomes, execute build_workflow_bulk in one shot, and offer the user to customize the emails/fields after presenting the workflow.
 
         Use this tool for:
-        - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.
+        - Creating a new workflow from scratch by passing title, trigger_form_id,
+          steps, and connections.
         - Adding a complete graph of steps and connections to an existing workflow_id.
         - Deleting existing obsolete steps atomically via delete_step_ids (e.g. delete_step_ids=['8', '9']).
         - Combining step deletion, creation, and rewiring in one atomic call.
 
-        If the user asks for a new workflow and does not provide an existing form ID,
-        pass form_prompt here. Do not create the trigger form with any separate
-        Jotform Form plugin/tool, and do not stop after creating only a form.
+        Pass the trigger_form_id obtained from create_form_with_ai along with
+        steps and connections. Use the exact field_id/label values returned by
+        that first call for condition fields and form-backed recipients. This
+        deterministic two-step path is the recommended workflow creation flow.
+        Do not create the trigger form with a separate external form plugin.
 
         This is the model-facing workflow creation path; standalone workflow
         creation helpers are hidden and only used as internal fallback pieces.
-        Do not use form_prompt as a standalone form creation step; include steps and connections in the same call.
+        form_prompt is retained only as a backward-compatible fallback. If it
+        is used, include steps and connections in the same call.
         All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.
         Use 'start' or '1' as from_ref to connect from the trigger form. When updating an existing workflow,
         existing step IDs from get_workflow can also be used in from_ref/to_ref.
@@ -1249,9 +1330,10 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         form_prompt or trigger_form_id but no steps, this tool creates a standard approval draft.
 
         One-write rule: call this tool once for the intended create/update graph. If the result has warnings
-        but no error, treat the build as successful; do not call it again merely to clean safe defaults,
-        aliases, or dropped non-essential fields. If the first call errors on a common approval/task/email
-        field, retry at most once with that specific field fixed.
+        but no error, treat the build as successful and immediately call show_workflow(workflow_id) as the final
+        presentation step without an extra intermediate get_workflow call; do not call build_workflow_bulk again
+        merely to clean safe defaults, aliases, or dropped non-essential fields. If the first call errors on a
+        common approval/task/email field, retry at most once with that specific field fixed.
         """
         workflow_id = str(workflow_id or "").strip()
         title = str(title or "").strip()
@@ -1259,6 +1341,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         form_prompt = str(form_prompt or "").strip()
         form_language = str(form_language or "en").strip() or "en"
         normalized_delete_ids = [str(sid).strip() for sid in (delete_step_ids or []) if str(sid).strip()]
+        normalized_delete_link_ids = [
+            str(link_id).strip()
+            for link_id in (delete_link_ids or [])
+            if str(link_id).strip()
+        ]
         deleted_set = set(normalized_delete_ids)
         warnings: list[str] = []
 
@@ -1268,7 +1355,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "No steps were provided; created a standard approval draft with approve/reject emails and an end step."
             )
 
-        if not steps and not normalized_delete_ids:
+        if not steps and not normalized_delete_ids and not normalized_delete_link_ids and not connections:
             return BuildWorkflowBulkResult(
                 error=(
                     "No steps provided to build_workflow_bulk. Do not use form_prompt as a standalone "
@@ -1276,9 +1363,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     "or provide delete_step_ids to delete existing steps."
                 )
             )
-        if normalized_delete_ids and not workflow_id:
+        if (normalized_delete_ids or normalized_delete_link_ids) and not workflow_id:
             return BuildWorkflowBulkResult(
-                error="delete_step_ids requires workflow_id to be provided."
+                error="delete_step_ids and delete_link_ids require workflow_id to be provided."
             )
 
         # 1. Check uniqueness of step refs
@@ -1405,11 +1492,25 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                         "a workflow from scratch, provide title and either form_prompt "
                         "or trigger_form_id."
                     ),
-                    hint="Pass workflow_id, or call build_workflow_bulk with title + form_prompt.",
+                    hint=(
+                        "Pass workflow_id, or first call create_form_with_ai and then call "
+                        "build_workflow_bulk with title + trigger_form_id + steps + connections."
+                    ),
                 )
 
             form_content: dict = {}
-            if form_prompt:
+            if trigger_form_id:
+                created_trigger_form_id = trigger_form_id
+                if form_prompt:
+                    warnings.append(
+                        "Both trigger_form_id and form_prompt were supplied; used trigger_form_id and ignored the compatibility form_prompt fallback."
+                    )
+                try:
+                    trigger_form_questions = client.get_form_questions(trigger_form_id)
+                    trigger_form_fields = form_fields_from_questions(trigger_form_questions)
+                except JotformAPIError as e:
+                    warnings.append(f"Could not load trigger form {trigger_form_id} fields: {e}")
+            elif form_prompt:
                 try:
                     form_content = client.create_form_with_ai(
                         form_prompt, language=form_language
@@ -1435,16 +1536,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 questions = form_content.get("questions") if isinstance(form_content.get("questions"), dict) else {}
                 trigger_form_questions = questions
                 trigger_form_fields = form_fields_from_questions(questions)
-                form_title = (questions.get("1") or {}).get("text") if isinstance(questions.get("1"), dict) else None
+                form_title = _extract_ai_form_title(form_content, questions)
                 if not title:
                     title = form_title or "Untitled Workflow"
-            elif trigger_form_id:
-                created_trigger_form_id = trigger_form_id
-                try:
-                    trigger_form_questions = client.get_form_questions(trigger_form_id)
-                    trigger_form_fields = form_fields_from_questions(trigger_form_questions)
-                except JotformAPIError as e:
-                    warnings.append(f"Could not load trigger form {trigger_form_id} fields: {e}")
 
             if not title:
                 title = "Untitled Workflow"
@@ -1650,6 +1744,15 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             if l.get("link_id") is not None
         }
 
+        for link_id in normalized_delete_link_ids:
+            if link_id not in existing_links_by_id:
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    warnings=warnings,
+                    error=f"Connection '{link_id}' in delete_link_ids does not exist in workflow {workflow_id}.",
+                )
+
         # Validate delete_step_ids
         for del_id in normalized_delete_ids:
             if del_id not in existing_elements_by_id:
@@ -1683,13 +1786,17 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             l for l in existing_links
             if str(l.get("fromElement")) in deleted_set or str(l.get("toElement")) in deleted_set
         ]
-        deleted_incident_link_ids = {
-            l.get("link_id") for l in deleted_incident_links
-            if l.get("link_id") is not None
+        removed_link_values = {
+            str(link.get("link_id")): link.get("link_id")
+            for link in deleted_incident_links
+            if link.get("link_id") is not None
         }
+        for link_id in normalized_delete_link_ids:
+            removed_link_values[link_id] = existing_links_by_id[link_id].get("link_id", link_id)
+        removed_link_ids = set(removed_link_values)
         link_deletes = [
-            {"action": "delete", "linkID": lid, "data": {"link_id": lid}}
-            for lid in deleted_incident_link_ids
+            {"action": "delete", "linkID": value, "data": {"link_id": value}}
+            for _, value in sorted(removed_link_values.items())
         ]
 
         outcome_updates_by_element: dict[str, dict] = {}
@@ -1699,7 +1806,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 continue
             if source_elem.get("type") not in schema_registry.BRANCHING_TYPES:
                 continue
-            clear = tb.build_outcome_clears_for_links(source_elem, list(deleted_incident_link_ids))
+            clear = tb.build_outcome_clears_for_links(source_elem, list(removed_link_ids))
             if clear is not None:
                 outcome_updates_by_element[str(source_id)] = clear
 
@@ -1858,8 +1965,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 outcome_id = matched_outcome.get("outcomeID") or matched_outcome.get("id") if isinstance(matched_outcome, dict) else 1
                 previous_link_id = matched_outcome.get("linkID") if isinstance(matched_outcome, dict) else None
                 if previous_link_id not in (None, 0, "0", ""):
-                    if previous_link_id not in deleted_incident_link_ids:
+                    if str(previous_link_id) not in removed_link_ids:
                         link_deletes.append(tb.build_link_delete(previous_link_id))
+                        removed_link_ids.add(str(previous_link_id))
                     previous_link = existing_links_by_id.get(str(previous_link_id))
                     previous_to = previous_link.get("toElement") if previous_link else None
                     warnings.append(
@@ -1921,6 +2029,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 _revision_reason(revision_desc, intent, reason),
                 tool_name="build_workflow_bulk",
             )
+            locking_args = {}
+            if expected_revision_id:
+                locking_args["expected_revision_id"] = expected_revision_id
+            if base_updated_at:
+                locking_args["base_updated_at"] = base_updated_at
             client.update_tree(
                 workflow_id,
                 elements=(
@@ -1930,6 +2043,20 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     + list(position_updates_by_element.values())
                 ),
                 links=link_deletes + link_creates,
+                **locking_args,
+            )
+        except ConflictError as e:
+            return BuildWorkflowBulkResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                trigger_form_id=created_trigger_form_id,
+                trigger_form_url=_form_url(created_trigger_form_id),
+                conflict=True,
+                current_revision_id=e.current_revision_id,
+                current_updated_at=e.current_updated_at,
+                error=str(e),
+                hint="Reload the live workflow, review external edits, and retry with its new revision_id.",
+                warnings=warnings,
             )
         except JotformAPIError as e:
             return BuildWorkflowBulkResult(
@@ -1949,8 +2076,92 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             trigger_form_fields=trigger_form_fields,
             created_steps={s_ref: str(ref_to_id[s_ref]) for s_ref, _, _ in step_items},
             deleted_steps=normalized_delete_ids,
+            deleted_links=normalized_delete_link_ids,
             created_links_count=len(link_creates),
             warnings=warnings,
+            hint=f"Next required step: call show_workflow(workflow_id='{workflow_id}') immediately to display the interactive visual workflow canvas to the user.",
+        )
+
+    @mcp.tool()
+    def apply_workflow_canvas_diff(
+        workflow_id: Annotated[str, Field(description="Workflow currently open in the Canvas UI.")],
+        diff: Annotated[WorkflowCanvasDiff, Field(
+            description="Semantic Canvas changes based on the last live revision_id."
+        )],
+    ) -> WorkflowCanvasDiffResult:
+        """Apply a revision-checked semantic Canvas diff in one updateTree write."""
+        connection_upserts: list[ConnectionSpec] = []
+        connection_deletes: list[str] = []
+        for connection in diff.updated_connections:
+            if connection.action == "delete":
+                if not connection.link_id:
+                    return WorkflowCanvasDiffResult(
+                        workflow_id=workflow_id,
+                        workflow_url=_workflow_url(workflow_id),
+                        error="A Canvas connection delete requires link_id.",
+                    )
+                connection_deletes.append(connection.link_id)
+                continue
+            if not connection.from_ref or not connection.to_ref:
+                return WorkflowCanvasDiffResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    error="A Canvas connection upsert requires from_ref and to_ref.",
+                )
+            if connection.link_id:
+                connection_deletes.append(connection.link_id)
+            connection_upserts.append(ConnectionSpec(
+                from_ref=connection.from_ref,
+                to_ref=connection.to_ref,
+                outcome=connection.outcome,
+            ))
+
+        result = build_workflow_bulk(
+            workflow_id,
+            steps=diff.added_steps,
+            connections=connection_upserts,
+            delete_step_ids=diff.deleted_step_ids,
+            delete_link_ids=connection_deletes,
+            expected_revision_id=diff.base_revision_id,
+            base_updated_at=diff.base_updated_at or "",
+            intent="apply Canvas semantic diff",
+            reason="synchronize iframe edit with live Jotform workflow",
+        )
+        if result.error:
+            return WorkflowCanvasDiffResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                conflict=result.conflict,
+                revision_id=result.current_revision_id,
+                updated_at=result.current_updated_at,
+                error=result.error,
+                hint=result.hint,
+            )
+        try:
+            written_snapshot = client.get_workflow_combined(workflow_id)
+            new_revision_id = workflow_revision_id(written_snapshot)
+            new_updated_at = workflow_updated_at(written_snapshot)
+        except (AttributeError, JotformAPIError) as error:
+            return WorkflowCanvasDiffResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                applied=True,
+                added_steps=result.created_steps,
+                deleted_step_ids=result.deleted_steps,
+                updated_connections_count=len(diff.updated_connections),
+                error=f"Diff was applied, but its new live revision could not be read: {error}",
+                hint="Reload with show_workflow before sending another Canvas diff.",
+            )
+        return WorkflowCanvasDiffResult(
+            workflow_id=workflow_id,
+            workflow_url=_workflow_url(workflow_id),
+            applied=True,
+            added_steps=result.created_steps,
+            deleted_step_ids=result.deleted_steps,
+            updated_connections_count=len(diff.updated_connections),
+            revision_id=new_revision_id,
+            updated_at=new_updated_at,
+            hint="Diff applied. Use the returned revision_id as the base for the next Canvas edit.",
         )
 
     @mcp.tool()

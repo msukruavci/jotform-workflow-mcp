@@ -16,7 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from mcp_server.jotform_client import JotformClient
+from mcp_server.jotform_client import (
+    JotformClient,
+    workflow_revision_id,
+    workflow_updated_at,
+)
 
 PROCESS_SESSION_ID = os.environ.get("MCP_REVISION_SESSION_ID") or uuid.uuid4().hex
 
@@ -57,6 +61,8 @@ def summarize_revision(record: dict) -> dict:
         "title": workflow.get("title"),
         "step_count": _count_items(snapshot, "elements"),
         "link_count": _count_items(snapshot, "links"),
+        "remote_revision_id": record.get("remote_revision_id"),
+        "remote_updated_at": record.get("remote_updated_at"),
     }
 
 
@@ -67,7 +73,8 @@ def capture_workflow_revision(
     *,
     tool_name: str | None = None,
 ) -> dict:
-    snapshot = hydrate_workflow_snapshot(client, workflow_id, client.get_workflow_combined(workflow_id))
+    live_snapshot = client.get_workflow_combined(workflow_id)
+    snapshot = hydrate_workflow_snapshot(client, workflow_id, live_snapshot)
     record = {
         "revision_id": uuid.uuid4().hex,
         "timestamp": _now(),
@@ -76,6 +83,8 @@ def capture_workflow_revision(
         "workflow_url": _workflow_url(str(workflow_id)),
         "reason": reason,
         "tool_name": tool_name,
+        "remote_revision_id": workflow_revision_id(live_snapshot),
+        "remote_updated_at": workflow_updated_at(live_snapshot),
         "snapshot": snapshot,
     }
 

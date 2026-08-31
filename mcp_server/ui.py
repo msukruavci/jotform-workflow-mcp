@@ -23,6 +23,15 @@ WORKFLOW_UI_LEGACY_RESOURCE_URIS: tuple[str, ...] = tuple(
 )
 LOGGER = logging.getLogger(__name__)
 
+# ResourceCsp controls destinations loaded *by* the sandboxed MCP App. Keep
+# these as exact origins: wildcard Jotform subdomains would let a compromised
+# or user-controlled tenant origin become an allowed script/network source.
+WORKFLOW_UI_CONNECT_ORIGINS = ("https://api.jotform.com",)
+WORKFLOW_UI_RESOURCE_ORIGINS = (
+    "https://www.jotform.com",
+    "https://cdn.jotfor.ms",
+)
+
 _FALLBACK_HTML = """<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -75,8 +84,8 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             title="Jotform Workflows",
             description="Read-only workflow list and verified workflow graph preview.",
             csp=ResourceCsp(
-                connect_domains=["https://api.jotform.com", "https://*.jotform.com"],
-                resource_domains=["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
+                connect_domains=list(WORKFLOW_UI_CONNECT_ORIGINS),
+                resource_domains=list(WORKFLOW_UI_RESOURCE_ORIGINS),
                 frame_domains=[],
                 base_uri_domains=[],
             ),
@@ -119,16 +128,18 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
     async def show_workflow(
         workflow_id: Annotated[
             str,
-            Field(description="Workflow id from list_workflows, create_workflow, or a write result."),
+            Field(description="Workflow id returned by build_workflow_bulk or resolved from list_workflows."),
         ],
     ) -> WorkflowPreviewUIResult:
         """
         Show one workflow in the interactive read-only workflow preview UI.
 
         Use when the user asks to open, show, preview, or inspect a workflow.
-        Also call this exactly once after all requested workflow creation or
-        update operations have finished and their final state was read back.
-        Do not call it for intermediate write steps.
+        Call immediately after build_workflow_bulk to present the interactive UI
+        canvas, or after any other workflow update operations have finished.
+        Do NOT insert an extra get_workflow call before show_workflow — build_workflow_bulk
+        already returns the complete summary, and show_workflow fetches and verifies the
+        live workflow graph internally. Do not call it for intermediate write steps.
         """
         return WorkflowPreviewUIResult(data=read_workflow_preview(client, workflow_id))
 

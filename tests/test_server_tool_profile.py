@@ -10,8 +10,9 @@ def test_mcp_uses_single_tool_surface_even_when_profile_env_is_set(monkeypatch):
     tools = asyncio.run(mcp.list_tools())
     tool_names = {tool.name for tool in tools}
 
-    assert len(tools) == 16
+    assert len(tools) == 17
     assert "build_workflow_bulk" in tool_names
+    assert "apply_workflow_canvas_diff" in tool_names
     assert "create_form_with_ai" in tool_names
     assert "search_workflow_templates" in tool_names
     assert "get_workflow_template" not in tool_names
@@ -28,7 +29,7 @@ def test_mcp_uses_single_tool_surface_even_when_profile_env_is_set(monkeypatch):
     assert "update_step" not in tool_names
 
 
-def test_server_instructions_describe_single_surface_without_get_form_fields(monkeypatch):
+def test_server_instructions_describe_decoupled_three_tool_sequence(monkeypatch):
     monkeypatch.setenv("MCP_TOOL_PROFILE", "fast")
 
     instructions = server.build_server_instructions()
@@ -42,20 +43,46 @@ def test_server_instructions_describe_single_surface_without_get_form_fields(mon
     assert "Standalone workflow creation tools and low-level updateTree tools" in instructions
     assert "add_step/connect_steps/disconnect_steps/update_step are intentionally hidden" in instructions
     assert "One-write rule" in instructions
-    assert "trigger_form_fields" in instructions
     assert "get_form_fields" not in instructions
-    assert "Only use create_form_with_ai when the user asks for a standalone form" in instructions
+    assert "first call create_form_with_ai(prompt=...)" in instructions
+    assert "Then call build_workflow_bulk(trigger_form_id=..., steps=..., connections=...)" in instructions
+    assert "Finally call show_workflow(workflow_id)" in instructions
+    assert "form_prompt on build_workflow_bulk remains a backward-compatible fallback only" in instructions
+    assert "Only use create_form_with_ai when the user asks for a standalone form" not in instructions
+    assert "Prefer keeping AI form creation, workflow creation" not in instructions
 
 
-def test_build_workflow_bulk_schema_discourages_external_form_plugin(monkeypatch):
+def test_tool_schemas_expose_decoupled_form_then_workflow_contract(monkeypatch):
     monkeypatch.setenv("MCP_TOOL_PROFILE", "fast")
 
     tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+    create_tool = tools["create_form_with_ai"]
     build_tool = tools["build_workflow_bulk"]
+    show_tool = tools["show_workflow"]
+    canvas_diff_tool = tools["apply_workflow_canvas_diff"]
 
-    assert "Do not create the trigger form with any separate" in build_tool.description
+    assert "Call this first when building a new workflow" in create_tool.description
+    assert "exact field_id, label, type" in create_tool.description
+    assert "Pass the trigger_form_id obtained from create_form_with_ai" in build_tool.description
+    assert "Call immediately after build_workflow_bulk" in show_tool.description
+
+    output_schema = create_tool.output_schema
+    assert {"form_id", "form_url", "title", "summary", "fields"} <= set(output_schema["properties"])
+    form_field_schema = output_schema["$defs"]["FormField"]["properties"]
+    assert {"field_id", "label", "type", "required", "options"} == set(form_field_schema)
+
     schema = build_tool.input_schema
     form_prompt = schema["properties"]["form_prompt"]["description"]
     trigger_form_id = schema["properties"]["trigger_form_id"]["description"]
-    assert "instead of any separate Jotform Form plugin/tool" in form_prompt
-    assert "otherwise use form_prompt" in trigger_form_id
+    assert "backward-compatible fallback" in form_prompt
+    assert "If both are supplied, trigger_form_id takes precedence" in form_prompt
+    assert "form_id obtained from create_form_with_ai" in trigger_form_id
+
+    diff_schema = canvas_diff_tool.input_schema["$defs"]["WorkflowCanvasDiff"]["properties"]
+    assert {
+        "added_steps",
+        "deleted_step_ids",
+        "updated_connections",
+        "base_revision_id",
+        "base_updated_at",
+    } == set(diff_schema)

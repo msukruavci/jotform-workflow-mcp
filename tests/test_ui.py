@@ -94,6 +94,21 @@ def test_ui_resource_is_registered_with_mcp_app_mime_type():
     assert "workflow ui" in contents[0].content
 
 
+def test_ui_csp_uses_exact_origins_and_disallows_nested_frames():
+    resources = asyncio.run(_server().list_resources())
+    resource = next(item for item in resources if str(item.uri) == WORKFLOW_UI_RESOURCE_URI)
+    csp = resource.meta["ui"]["csp"]
+
+    assert csp["connectDomains"] == ["https://api.jotform.com"]
+    assert csp["resourceDomains"] == [
+        "https://www.jotform.com",
+        "https://cdn.jotfor.ms",
+    ]
+    assert csp["frameDomains"] == []
+    assert csp["baseUriDomains"] == []
+    assert all("*" not in origin for origins in csp.values() for origin in origins)
+
+
 def test_legacy_ui_resources_serve_the_current_bundle():
     server = _server()
 

@@ -114,6 +114,11 @@ class WorkflowDetail(BaseModel):
     title: str | None = None
     status: str | None = None
     publish_status: str | None = None
+    revision_id: str | None = Field(
+        None,
+        description="Live snapshot token to pass as expected_revision_id before a mutation.",
+    )
+    updated_at: str | None = None
     steps: list[Step] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
     trigger_form_fields: list[FormField] = Field(
@@ -147,6 +152,11 @@ class WorkflowPreviewData(BaseModel):
     title: str | None = None
     status: str | None = None
     publish_status: str | None = None
+    revision_id: str | None = Field(
+        None,
+        description="Live snapshot token used as base_revision_id by an editable canvas.",
+    )
+    updated_at: str | None = None
     elements: list[dict] = Field(
         default_factory=list,
         description="Persisted Workflow element properties for the native read-only canvas",
@@ -183,6 +193,8 @@ class WorkflowRevisionSummary(BaseModel):
     title: str | None = None
     step_count: int = 0
     link_count: int = 0
+    remote_revision_id: str | None = None
+    remote_updated_at: str | None = None
 
 
 class WorkflowRevisionList(BaseModel):
@@ -235,10 +247,18 @@ class FormList(BaseModel):
 
 
 class FormField(BaseModel):
-    field_id: str | None = None
-    label: str | None = None
-    type: str | None = None
-    required: str | bool | None = None
+    field_id: str | None = Field(
+        None, description="Exact Jotform question ID used in workflow field references."
+    )
+    label: str | None = Field(
+        None, description="Exact visible form-field label."
+    )
+    type: str | None = Field(
+        None, description="Exact Jotform question/control type."
+    )
+    required: str | bool | None = Field(
+        None, description="Whether the form field is required, as returned by Jotform."
+    )
     options: list[str] = Field(
         default_factory=list,
         description="Exact allowed option texts for dropdown/radio/choice fields",
@@ -309,14 +329,22 @@ class CreateWorkflowResult(BaseModel):
 
 
 class CreateAIFormResult(BaseModel):
-    form_id: str | None = None
-    form_url: str | None = None
-    title: str | None = None
-    summary: str | None = None
-    questions: dict = Field(default_factory=dict)
+    form_id: str | None = Field(
+        None, description="New form ID to pass to build_workflow_bulk as trigger_form_id."
+    )
+    form_url: str | None = Field(None, description="Jotform builder URL for the new form.")
+    title: str | None = Field(None, description="Generated form title.")
+    summary: str | None = Field(None, description="AI form-generation summary.")
+    questions: dict = Field(
+        default_factory=dict,
+        description="Backward-compatible raw Jotform question map; prefer fields.",
+    )
     fields: list[FormField] = Field(
         default_factory=list,
-        description="Simplified fields/questions from the created form.",
+        description=(
+            "Complete normalized field contract for the next build_workflow_bulk call: "
+            "field_id, label, type, required, and options."
+        ),
     )
     error: str | None = None
 
@@ -432,6 +460,62 @@ class ConnectionSpec(BaseModel):
     )
 
 
+class WorkflowCanvasConnectionUpdate(BaseModel):
+    action: Literal["upsert", "delete"] = "upsert"
+    link_id: str | None = Field(
+        None,
+        description="Existing link to replace or delete. Omit when creating a new connection.",
+    )
+    from_ref: str = Field(
+        default="",
+        description="Source step id/ref; required for action=upsert.",
+    )
+    to_ref: str = Field(
+        default="",
+        description="Target step id/ref; required for action=upsert.",
+    )
+    outcome: str = Field(
+        default="",
+        description="Branch outcome label when the source step branches.",
+    )
+
+
+class WorkflowCanvasDiff(BaseModel):
+    """Versioned semantic edit contract for a future editable iframe canvas."""
+
+    added_steps: list[StepSpec] = Field(default_factory=list)
+    deleted_step_ids: list[str] = Field(default_factory=list)
+    updated_connections: list[WorkflowCanvasConnectionUpdate] = Field(
+        default_factory=list,
+        description=(
+            "Connections to create, replace, or delete. Use action=upsert with link_id "
+            "to replace an edge and action=delete with link_id to remove one."
+        ),
+    )
+    base_revision_id: str = Field(
+        min_length=1,
+        description="revision_id from the live canvas snapshot this diff was based on.",
+    )
+    base_updated_at: str | None = Field(
+        None,
+        description="Optional cloud updated_at value for timestamp-based compatibility clients.",
+    )
+
+
+class WorkflowCanvasDiffResult(BaseModel):
+    workflow_id: str | None = None
+    workflow_url: str | None = None
+    applied: bool = False
+    added_steps: dict[str, str] = Field(default_factory=dict)
+    deleted_step_ids: list[str] = Field(default_factory=list)
+    updated_connections_count: int = 0
+    revision_id: str | None = None
+    updated_at: str | None = None
+    conflict: bool = False
+    error: str | None = None
+    hint: str | None = None
+
+
 class BuildWorkflowBulkResult(BaseModel):
     workflow_id: str | None = None
     workflow_url: str | None = None
@@ -452,7 +536,13 @@ class BuildWorkflowBulkResult(BaseModel):
         default_factory=list,
         description="List of step IDs that were deleted in this bulk update",
     )
+    deleted_links: list[str] = Field(default_factory=list)
     created_links_count: int = 0
+    revision_id: str | None = None
+    updated_at: str | None = None
+    conflict: bool = False
+    current_revision_id: str | None = None
+    current_updated_at: str | None = None
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
     hint: str | None = None

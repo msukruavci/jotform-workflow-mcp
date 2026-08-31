@@ -1,6 +1,11 @@
+import asyncio
+
+from mcp.server import MCPServer
+
 from mcp_server.models import ConnectionSpec, StepSpec
 from mcp_server import tree_builder as tb
 from mcp_server.tools import building
+from mcp_server.ui import create_workflow_apps
 
 
 class DummyMCP:
@@ -41,13 +46,16 @@ class DummyClient:
         self.update_calls.append({"workflow_id": workflow_id, "elements": elements, "links": links})
         return {}
 
-    def get_workflow_combined(self, workflow_id):
+    def get_workflow_combined(self, workflow_id, *, fetch_essential=True):
         self.get_workflow_combined_calls.append(workflow_id)
         return {
             "workflow": {"id": workflow_id, "title": "Demo"},
             "elements": list(self.elements),
             "links": [],
         }
+
+    def get_form(self, form_id):
+        return {"id": form_id, "title": "Trigger Form"}
 
     def get_form_questions(self, form_id):
         self.get_form_questions_calls.append(form_id)
@@ -81,6 +89,152 @@ class DummyClient:
     def get_element(self, workflow_id, element_id):
         assert str(element_id) == "1"
         return self.elements[0]
+
+
+class DecoupledFlowClient(DummyClient):
+    def _questions(self):
+        return {
+            "1": {
+                "qid": "1",
+                "text": "University Internship Application",
+                "type": "control_head",
+            },
+            "2_email": {
+                "qid": "2_email",
+                "text": "Student Email",
+                "type": "control_email",
+                "name": "q2_email",
+                "required": "Yes",
+            },
+            "3_department": {
+                "qid": "3_department",
+                "text": "Department",
+                "type": "control_dropdown",
+                "name": "q3_department",
+                "required": "No",
+                "options": "Engineering|Design|Operations",
+            },
+        }
+
+    def create_form_with_ai(self, prompt, *, form_type="classic", language="en"):
+        self.created_forms.append({"prompt": prompt, "form_type": form_type, "language": language})
+        return {
+            "resource_id": "form_ai_1",
+            "questions": self._questions(),
+            "summary": "AI-generated university internship form",
+        }
+
+    def get_form_questions(self, form_id):
+        self.get_form_questions_calls.append(form_id)
+        return self._questions()
+
+
+def test_create_form_with_ai_returns_complete_exact_field_contract():
+    mcp = DummyMCP()
+    client = DecoupledFlowClient()
+    building.register(mcp, client)
+
+    result = mcp.tools["create_form_with_ai"](
+        "Create a university internship application form.",
+        language="en",
+    )
+
+    assert result.error is None
+    assert result.form_id == "form_ai_1"
+    assert result.form_url == "https://www.jotform.com/build/form_ai_1"
+    assert result.title == "University Internship Application"
+    assert result.summary == "AI-generated university internship form"
+    assert [field.model_dump() for field in result.fields] == [
+        {
+            "field_id": "1",
+            "label": "University Internship Application",
+            "type": "control_head",
+            "required": None,
+            "options": [],
+        },
+        {
+            "field_id": "2_email",
+            "label": "Student Email",
+            "type": "control_email",
+            "required": "Yes",
+            "options": [],
+        },
+        {
+            "field_id": "3_department",
+            "label": "Department",
+            "type": "control_dropdown",
+            "required": "No",
+            "options": ["Engineering", "Design", "Operations"],
+        },
+    ]
+
+
+def test_decoupled_university_workflow_runs_create_build_show_with_zero_retry():
+    mcp = DummyMCP()
+    client = DecoupledFlowClient()
+    building.register(mcp, client)
+
+    form = mcp.tools["create_form_with_ai"](
+        "Create a university internship application form with student email and department."
+    )
+    email_field_id = next(
+        field.field_id for field in form.fields if field.type == "control_email"
+    )
+
+    result = mcp.tools["build_workflow_bulk"](
+        title="University Internship Review",
+        trigger_form_id=form.form_id,
+        steps=[
+            StepSpec(
+                ref="advisor_approval",
+                type="workflow_approval",
+                config={
+                    "approver": "advisor@university.edu",
+                    "taskDescription": "Review the internship application.",
+                },
+            ),
+            StepSpec(
+                ref="student_notification",
+                type="workflow_send_email",
+                config={
+                    "to": email_field_id,
+                    "subject": "Internship application reviewed",
+                    "content": "Your internship application has been reviewed.",
+                },
+            ),
+        ],
+        connections=[
+            ConnectionSpec(from_ref="start", to_ref="advisor_approval"),
+            ConnectionSpec(
+                from_ref="advisor_approval",
+                to_ref="student_notification",
+                outcome="Approve",
+            ),
+        ],
+    )
+
+    assert result.error is None
+    assert result.workflow_id == "wf_new_1"
+    assert result.trigger_form_id == form.form_id
+    assert len(client.created_forms) == 1  # The bulk call did not create a second form.
+    assert client.get_form_questions_calls == ["form_ai_1"]
+    assert client.created_workflows == ["University Internship Review"]
+    assert len(client.update_calls) == 1
+    email_config = client.update_calls[0]["elements"][1]["data"]
+    assert email_config["to"][0]["isQuestion"] is True
+    assert email_config["to"][0]["value"] == "{q2_email}"
+
+    ui_server = MCPServer(
+        "decoupled-flow-test",
+        extensions=[create_workflow_apps(client, html="<html>workflow</html>")],
+    )
+    preview = asyncio.run(
+        ui_server.call_tool("show_workflow", {"workflow_id": result.workflow_id})
+    )
+
+    assert preview.structured_content["view"] == "workflow-preview"
+    assert preview.structured_content["data"]["workflow_id"] == "wf_new_1"
+    assert client.get_workflow_combined_calls == ["wf_new_1", "wf_new_1"]
 
 
 def test_build_workflow_bulk_linear_chain():
@@ -423,6 +577,32 @@ def test_build_workflow_bulk_creates_workflow_with_existing_trigger_form():
     assert client.created_forms == []
     assert client.created_workflows == ["Existing Trigger Workflow"]
     assert client.bound_trigger_forms == [("wf_new_1", "form_existing_1")]
+
+
+def test_build_workflow_bulk_prefers_trigger_form_id_over_form_prompt_fallback():
+    mcp = DummyMCP()
+    client = DummyClient()
+    building.register(mcp, client)
+
+    result = mcp.tools["build_workflow_bulk"](
+        title="Deterministic Trigger Workflow",
+        trigger_form_id="form_existing_1",
+        form_prompt="This compatibility fallback must be ignored.",
+        steps=[
+            StepSpec(
+                ref="notify_1",
+                type="workflow_send_email",
+                config={"to": "2_email", "subject": "Received", "content": "Received."},
+            ),
+        ],
+        connections=[ConnectionSpec(from_ref="start", to_ref="notify_1")],
+    )
+
+    assert result.error is None
+    assert result.trigger_form_id == "form_existing_1"
+    assert client.created_forms == []
+    assert client.get_form_questions_calls == ["form_existing_1"]
+    assert any("used trigger_form_id" in warning for warning in result.warnings)
 
 
 def test_build_workflow_bulk_branching():

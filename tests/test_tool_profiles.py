@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from agent.tool_profiles import filter_tools
-from mcp_server.tool_profiles import current_profile, feature_enabled
+from mcp_server.tool_profiles import FAST_TOOLS, current_profile, feature_enabled
 
 
 def _tools(*names):
@@ -34,6 +34,15 @@ def test_single_tool_surface_hides_deprecated_and_field_lookup_tools():
         "delete_step",
         "delete_workflow",
     ]
+
+
+def test_fast_tools_exposes_decoupled_workflow_sequence_as_first_class_tools():
+    assert {
+        "create_form_with_ai",
+        "build_workflow_bulk",
+        "apply_workflow_canvas_diff",
+        "show_workflow",
+    } <= FAST_TOOLS
 
 
 def test_profile_arguments_and_env_do_not_change_the_single_surface(monkeypatch):

@@ -32,7 +32,12 @@ from pydantic import Field
 from mcp_server import graph, revision_log, schema_registry, workflow_inspector
 from mcp_server import tree_builder as tb
 from mcp_server.schema_registry import BRANCHING_TYPES
-from mcp_server.jotform_client import JotformClient, JotformAPIError
+from mcp_server.jotform_client import (
+    JotformClient,
+    JotformAPIError,
+    workflow_revision_id,
+    workflow_updated_at,
+)
 from mcp_server.models import (
     Connection, FormField, FormList, FormSummary, Step,
     StepDetail, WorkflowDetail, WorkflowHealth, WorkflowList, WorkflowSummary,
@@ -214,6 +219,8 @@ def _workflow_detail_from_combined(
         title=wf.get("title"),
         status=wf.get("status"),
         publish_status=wf.get("publishStatus"),
+        revision_id=workflow_revision_id(combined),
+        updated_at=workflow_updated_at(combined),
         steps=steps,
         connections=connections,
         trigger_form_fields=trigger_form_fields or [],
@@ -356,6 +363,8 @@ def read_workflow_preview(client: JotformClient, workflow_id: str) -> WorkflowPr
         title=detail.title,
         status=detail.status,
         publish_status=detail.publish_status,
+        revision_id=detail.revision_id,
+        updated_at=detail.updated_at,
         elements=elements,
         links=raw_links,
         known_element_ids=known_element_ids,
@@ -402,8 +411,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         workflow_id: Annotated[str, Field(description="From list_workflows.")],
     ) -> WorkflowDetail:
         """
-        Get a workflow's structure: its steps, how they connect, and whether
-        the structure is sound.
+        Get an existing workflow's structure: its steps, how they connect, and health diagnostics.
+
+        Use ONLY when the user asks to inspect, read, or list the steps of an existing workflow.
+        Do NOT call this after build_workflow_bulk or before show_workflow — build_workflow_bulk
+        already returns the complete summary (workflow ID, trigger form fields, step ID mappings),
+        and show_workflow visualizes the workflow canvas directly.
 
         Each connection carries an `outcome` when it leaves a branching step:
         TRUE or FALSE on an if/else, the branch name on a conditional
@@ -413,8 +426,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         `health` reports steps that can never run (unreachable from the start
         point), steps that lead nowhere, branches defined but wired to nothing,
-        and step types this server has no schema for. A workflow can look fine
-        as a list and still be broken.
+        and step types this server has no schema for.
 
         Steps are summaries only — use get_step_details for one step's full
         configuration.
@@ -461,12 +473,14 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         workflow_id: Annotated[str, Field(description="From list_workflows.")],
     ) -> WorkflowGapReport:
         """
-        Check for incomplete workflow setup before continuing or publishing.
+        Diagnostic gap analysis tool for existing workflows.
 
         This catches empty links, unwired branch outcomes, missing assignees,
         missing email/task content, and condition fields that are not real
-        fields on the trigger form. Call this before presenting a workflow as
-        ready, and when the user asks what still needs to be completed.
+        fields on the trigger form.
+        Use ONLY when the user explicitly asks for gap analysis, validation,
+        or diagnostics. Do NOT call this during normal workflow creation or
+        before show_workflow.
         """
         try:
             combined = client.get_workflow_combined(workflow_id)

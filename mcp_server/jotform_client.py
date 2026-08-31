@@ -9,8 +9,11 @@ apiKey. See docs/gap-report.md for the evidence trail.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -102,6 +105,96 @@ class JotformAPIError(RuntimeError):
         self.body = body
 
 
+class ConflictError(RuntimeError):
+    """Raised when a caller tries to write from a stale workflow snapshot."""
+
+    def __init__(
+        self,
+        workflow_id: str,
+        *,
+        expected_revision_id: str | None = None,
+        current_revision_id: str | None = None,
+        base_updated_at: str | None = None,
+        current_updated_at: str | None = None,
+    ):
+        super().__init__(
+            f"Workflow {workflow_id} changed in Jotform after it was read. "
+            "Reload it with get_workflow or show_workflow, review the live graph, "
+            "and retry from the new revision."
+        )
+        self.workflow_id = str(workflow_id)
+        self.expected_revision_id = expected_revision_id
+        self.current_revision_id = current_revision_id
+        self.base_updated_at = base_updated_at
+        self.current_updated_at = current_updated_at
+
+
+def workflow_updated_at(combined: dict) -> str | None:
+    """Extract the cloud update timestamp from known combined-response shapes."""
+    workflow = combined.get("workflow") if isinstance(combined, dict) else None
+    workflow = workflow if isinstance(workflow, dict) else {}
+    value = (
+        workflow.get("updated_at")
+        or workflow.get("updatedAt")
+        or combined.get("updated_at")
+        or combined.get("updatedAt")
+    )
+    return str(value) if value not in (None, "") else None
+
+
+def workflow_revision_id(combined: dict) -> str:
+    """Return a stable token from fields shared by compact and full snapshots."""
+    workflow = combined.get("workflow") if isinstance(combined, dict) else {}
+    workflow = workflow if isinstance(workflow, dict) else {}
+    # Only hash fields guaranteed on both fetchEssentialElementProps modes.
+    # Any config/layout-only cloud edit is still detected through updated_at.
+    element_keys = ("element_id", "id", "type", "resourceID", "resourceType")
+    link_keys = ("link_id", "id", "fromElement", "toElement")
+    semantic_snapshot = {
+        "workflow": {
+            key: workflow.get(key)
+            for key in (
+                "id", "title", "status", "publishStatus", "updated_at", "updatedAt"
+            )
+            if key in workflow
+        },
+        "elements": [
+            {key: item.get(key) for key in element_keys if key in item}
+            for item in (combined.get("elements") or [])
+            if isinstance(item, dict)
+        ],
+        "links": [
+            {key: item.get(key) for key in link_keys if key in item}
+            for item in (combined.get("links") or [])
+            if isinstance(item, dict)
+        ],
+    }
+    encoded = json.dumps(
+        semantic_snapshot,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    try:
+        if text.isdigit():
+            number = int(text)
+            if number > 10_000_000_000:
+                number /= 1000
+            return datetime.fromtimestamp(number, tz=timezone.utc)
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
+    except (OverflowError, ValueError):
+        return None
+
+
 class JotformClient:
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("JOTFORM_API_KEY", "")
@@ -109,10 +202,12 @@ class JotformClient:
             raise ValueError("JOTFORM_API_KEY is not set")
 
     def _request(self, method: str, path: str, *, params: dict | None = None,
-                 json_body: Any = None, headers: dict | None = None) -> dict:
+                 json_body: Any = None, headers: dict | None = None,
+                 timeout: float | None = None) -> dict:
         params = dict(params or {})
         params["apiKey"] = self.api_key
         url = f"{BASE_URL}{path}"
+        req_timeout = timeout or TIMEOUT
         
         headers = dict(headers or {})
         from mcp_server.telemetry_context import get_current_field
@@ -127,7 +222,7 @@ class JotformClient:
                 params=params,
                 json_body=json_body,
                 send=lambda: requests.request(
-                    method, url, params=params, json=json_body, headers=headers, timeout=TIMEOUT
+                    method, url, params=params, json=json_body, headers=headers, timeout=req_timeout
                 ),
             )
         except requests.Timeout as error:
@@ -262,14 +357,15 @@ class JotformClient:
                     "jf-v2-source": "mcp",
                     "jf-v2-target": "workflow-copilot",
                 },
+                timeout=45.0,
             ).get("content", {})
         except JotformAPIError as error:
-            if error.status not in (403, 404, 405):
+            if error.status not in (0, 403, 404, 405, 502, 503, 504):
                 raise
             return self._create_form_with_public_api_fallback(
                 prompt,
                 language=language,
-                reason=f"Original AI endpoint error: {error.status}.",
+                reason=f"Original AI endpoint error: {error.body or error.status}.",
             )
 
     # ---------- workflows: read ----------
@@ -360,13 +456,54 @@ class JotformClient:
             json_body={"type": step_type},
         ).get("content", {})
 
+    def assert_workflow_revision(
+        self,
+        workflow_id: str,
+        *,
+        expected_revision_id: str | None = None,
+        base_updated_at: str | None = None,
+    ) -> dict:
+        """Re-read cloud state and reject a stale optimistic-locking token."""
+        current = self.get_workflow_combined(workflow_id)
+        current_revision_id = workflow_revision_id(current)
+        current_updated_at = workflow_updated_at(current)
+
+        revision_changed = bool(
+            expected_revision_id and expected_revision_id != current_revision_id
+        )
+        base_time = _parse_timestamp(base_updated_at)
+        current_time = _parse_timestamp(current_updated_at)
+        timestamp_changed = bool(base_time and current_time and current_time > base_time)
+        if revision_changed or timestamp_changed:
+            raise ConflictError(
+                workflow_id,
+                expected_revision_id=expected_revision_id,
+                current_revision_id=current_revision_id,
+                base_updated_at=base_updated_at,
+                current_updated_at=current_updated_at,
+            )
+        return {
+            "revision_id": current_revision_id,
+            "updated_at": current_updated_at,
+            "snapshot": current,
+        }
+
     def update_tree(self, workflow_id: str, *, elements: list | None = None,
-                    links: list | None = None) -> dict:
+                    links: list | None = None,
+                    expected_revision_id: str | None = None,
+                    base_updated_at: str | None = None) -> dict:
         """
         The master endpoint — add/update/delete elements and links in one
         call. This is what Jotform's own UI uses for every change, and
         it's the most reliable write path we found.
         """
+        if expected_revision_id or base_updated_at:
+            self.assert_workflow_revision(
+                workflow_id,
+                expected_revision_id=expected_revision_id,
+                base_updated_at=base_updated_at,
+            )
+
         wire_elements = []
         for element in elements or []:
             wire_element = deepcopy(element)

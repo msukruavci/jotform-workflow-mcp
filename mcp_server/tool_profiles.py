@@ -6,6 +6,30 @@ from typing import Any
 
 DEFAULT_PROFILE = "default"
 
+# The intentionally small, first-class surface exposed to models. Keep this
+# allowlist explicit so newly registered low-level helpers do not become model
+# facing by accident. create_form_with_ai is part of the normal workflow build
+# path, not a hidden compatibility helper.
+FAST_TOOLS = frozenset({
+    "create_form_with_ai",
+    "build_workflow_bulk",
+    "apply_workflow_canvas_diff",
+    "show_workflow",
+    "show_workflows",
+    "list_step_types",
+    "get_step_schema",
+    "list_workflows",
+    "get_workflow",
+    "get_step_details",
+    "list_workflow_revisions",
+    "list_forms",
+    "search_workflow_templates",
+    "delete_step",
+    "publish_workflow",
+    "restore_workflow_revision",
+    "delete_workflow",
+})
+
 DEPRECATED_TOOL_NAMES = frozenset({
     "add_step",
     "connect_steps",
@@ -34,7 +58,8 @@ def filter_tools(tools: Iterable[Any], profile: str | None = None) -> list[Any]:
     """Return the single tool surface visible to the model."""
     return [
         tool for tool in tools
-        if _tool_name(tool) not in DEPRECATED_TOOL_NAMES
+        if _tool_name(tool) in FAST_TOOLS
+        and _tool_name(tool) not in DEPRECATED_TOOL_NAMES
     ]
 
 
