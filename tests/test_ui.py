@@ -83,7 +83,7 @@ def _server():
 
 
 def test_ui_resource_is_registered_with_mcp_app_mime_type():
-    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v42.html"
+    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v46.html"
 
     server = _server()
     resources = asyncio.run(server.list_resources())
