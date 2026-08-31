@@ -13,7 +13,7 @@ from mcp_server.jotform_client import JotformClient
 from mcp_server.models import WorkflowListUIResult, WorkflowPreviewUIResult
 from mcp_server.tools.reading import read_workflow_list, read_workflow_preview
 
-WORKFLOW_UI_RESOURCE_VERSION = 46
+WORKFLOW_UI_RESOURCE_VERSION = 47
 WORKFLOW_UI_RESOURCE_URI = (
     f"ui://jotform/workflows/v{WORKFLOW_UI_RESOURCE_VERSION}.html"
 )
@@ -73,11 +73,15 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             resource_html,
             name="Jotform Workflow UI",
             title="Jotform Workflows",
-            description="Read-only workflow list and verified workflow graph preview.",
+            description="Workflow list, graph preview, and hosted workflow editor.",
             csp=ResourceCsp(
                 connect_domains=["https://api.jotform.com", "https://*.jotform.com"],
                 resource_domains=["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
-                frame_domains=[],
+                frame_domains=[
+                    "https://www.jotform.com",
+                    "https://*.jotform.com",
+                    "https://*.jotform.pro",
+                ],
                 base_uri_domains=[],
             ),
             prefers_border=True,
@@ -123,12 +127,14 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
         ],
     ) -> WorkflowPreviewUIResult:
         """
-        Show one workflow in the interactive read-only workflow preview UI.
+        Show one workflow in the interactive workflow preview UI.
 
         Use when the user asks to open, show, preview, or inspect a workflow.
         Also call this exactly once after all requested workflow creation or
         update operations have finished and their final state was read back.
-        Do not call it for intermediate write steps.
+        The compact view is read-only; supported hosts can open Jotform's
+        authenticated embedded builder in fullscreen. Do not call this tool
+        for intermediate write steps.
         """
         return WorkflowPreviewUIResult(data=read_workflow_preview(client, workflow_id))
 
