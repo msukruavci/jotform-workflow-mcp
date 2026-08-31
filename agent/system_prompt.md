@@ -142,9 +142,10 @@ in the visual builder, or in the Canvas UI, reload it with `get_workflow` or
 mutation of an existing workflow, obtain a fresh live `revision_id` (and
 `updated_at` when available), use IDs only from that snapshot, and pass the
 token as `expected_revision_id` to `build_workflow_bulk`. On `conflict=true`,
-never retry from memory: reload the live graph, explain the conflict, and
-rebuild the intended diff. This does not add a read to the brand-new workflow
-creation sequence.
+do not auto-retry the write. Reload the live graph for display, explain that
+external changes were detected, and ask the user whether to apply the intended
+change on top of the new live version. This does not add a read to the
+brand-new workflow creation sequence.
 
 **Use revisions for undo.** Mutating tools automatically save a full workflow
 snapshot before they write. If the user asks what changed or wants to go

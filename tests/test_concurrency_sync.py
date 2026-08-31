@@ -7,6 +7,7 @@ from mcp_server.jotform_client import (
     workflow_revision_id,
 )
 from mcp_server.models import (
+    ConnectionSpec,
     StepSpec,
     WorkflowCanvasConnectionUpdate,
     WorkflowCanvasDiff,
@@ -98,18 +99,62 @@ def test_update_tree_rejects_newer_cloud_timestamp(monkeypatch):
         )
 
 
+def test_existing_bulk_update_requires_fresh_revision_token(monkeypatch):
+    mcp = DummyMCP()
+    client = CanvasClient()
+    building.register(mcp, client)
+    monkeypatch.setattr(revision_log, "capture_workflow_revision", lambda *args, **kwargs: {})
+
+    result = mcp.tools["build_workflow_bulk"](
+        "wf_1",
+        steps=[StepSpec(ref="finish", type="workflow_end_point", config={})],
+        connections=[ConnectionSpec(from_ref="start", to_ref="finish")],
+    )
+
+    assert result.conflict is True
+    assert "expected_revision_id" in result.error
+    assert "get_workflow" in result.hint
+    assert "do not call build_workflow_bulk again until the user confirms" in result.hint
+    assert client.update_calls == []
+
+
 class CanvasClient:
     def __init__(self):
         self.snapshot = _snapshot()
         self.update_calls = []
+        self.get_elements_calls = 0
+        self.get_links_calls = 0
 
     def get_workflow_combined(self, workflow_id, *, fetch_essential=True):
         return self.snapshot
 
+    def assert_workflow_revision(
+        self,
+        workflow_id,
+        *,
+        expected_revision_id=None,
+        base_updated_at=None,
+    ):
+        current_revision = workflow_revision_id(self.snapshot)
+        if expected_revision_id and expected_revision_id != current_revision:
+            raise ConflictError(
+                workflow_id,
+                expected_revision_id=expected_revision_id,
+                current_revision_id=current_revision,
+                current_updated_at=self.snapshot["workflow"]["updated_at"],
+            )
+        return {
+            "revision_id": current_revision,
+            "updated_at": self.snapshot["workflow"]["updated_at"],
+            "snapshot": self.snapshot,
+        }
+
     def get_elements(self, workflow_id):
+        self.get_elements_calls += 1
         return self.snapshot["elements"]
 
     def get_links(self, workflow_id):
+        self.get_links_calls += 1
         return self.snapshot["links"]
 
     def get_element(self, workflow_id, step_id):
@@ -191,9 +236,55 @@ def test_canvas_diff_returns_clean_conflict_result(monkeypatch):
 
     assert result.applied is False
     assert result.conflict is True
-    assert result.revision_id == workflow_revision_id(client.snapshot)
+    assert result.revision_id is None
+    assert result.updated_at is None
     assert "Reload" in result.hint
+    assert "retry" not in result.error.lower()
     assert client.update_calls == []
+
+
+def test_bulk_conflict_is_detected_before_expensive_graph_reads(monkeypatch):
+    mcp = DummyMCP()
+    client = CanvasClient()
+    building.register(mcp, client)
+    monkeypatch.setattr(revision_log, "capture_workflow_revision", lambda *args, **kwargs: {})
+
+    result = mcp.tools["build_workflow_bulk"](
+        "wf_1",
+        steps=[StepSpec(ref="finish", type="workflow_end_point", config={})],
+        connections=[ConnectionSpec(from_ref="start", to_ref="finish")],
+        expected_revision_id="sha256:stale",
+    )
+
+    assert result.conflict is True
+    assert "Stop after reporting this conflict" in result.hint
+    assert "ask the user" in result.hint
+    assert result.current_revision_id is None
+    assert result.current_updated_at is None
+    assert "retry" not in result.error.lower()
+    assert client.get_elements_calls == 0
+    assert client.get_links_calls == 0
+    assert client.update_calls == []
+
+
+def test_successful_bulk_update_returns_next_revision_token(monkeypatch):
+    mcp = DummyMCP()
+    client = CanvasClient()
+    building.register(mcp, client)
+    monkeypatch.setattr(revision_log, "capture_workflow_revision", lambda *args, **kwargs: {})
+    base_revision = workflow_revision_id(client.snapshot)
+
+    result = mcp.tools["build_workflow_bulk"](
+        "wf_1",
+        steps=[StepSpec(ref="finish", type="workflow_end_point", config={})],
+        connections=[ConnectionSpec(from_ref="start", to_ref="finish")],
+        expected_revision_id=base_revision,
+    )
+
+    assert result.error is None
+    assert result.revision_id
+    assert result.revision_id != base_revision
+    assert result.updated_at == "2026-08-31T10:01:00Z"
 
 
 def test_canvas_connection_replacement_deletes_and_creates_in_same_write(monkeypatch):

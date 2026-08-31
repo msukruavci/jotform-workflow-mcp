@@ -382,6 +382,13 @@ def _trigger_form_questions(client: JotformClient, workflow_id: str) -> tuple[st
         return None, {}, f"Could not read workflow trigger form: {e}"
 
     elements = [e for e in (combined.get("elements") or []) if isinstance(e, dict)]
+    return _trigger_form_questions_from_elements(client, elements)
+
+
+def _trigger_form_questions_from_elements(
+    client: JotformClient,
+    elements: list[dict],
+) -> tuple[str | None, dict, str | None]:
     trigger_form_id = workflow_inspector.trigger_form_id(elements)
     if not trigger_form_id:
         return None, {}, "Workflow has no trigger form."
@@ -1267,8 +1274,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         )] = "en",
         expected_revision_id: Annotated[str, Field(
             description=(
-                "Optional optimistic-lock token from get_workflow.revision_id. For an existing "
-                "workflow, pass it so an external or Canvas edit cannot be overwritten silently."
+                "Required optimistic-lock token from get_workflow.revision_id or show_workflow.data.revision_id "
+                "when mutating an existing workflow. Existing workflow writes without this token are rejected "
+                "so external or Canvas edits cannot be overwritten silently."
             )
         )] = "",
         base_updated_at: Annotated[str, Field(
@@ -1367,6 +1375,42 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             return BuildWorkflowBulkResult(
                 error="delete_step_ids and delete_link_ids require workflow_id to be provided."
             )
+        if workflow_id and not (expected_revision_id or base_updated_at):
+            return BuildWorkflowBulkResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                conflict=True,
+                error=(
+                    "Existing workflow updates require expected_revision_id from a fresh "
+                    "get_workflow/show_workflow read. Reload the live workflow first and ask "
+                    "the user before applying changes."
+                ),
+                hint=(
+                    f"Call get_workflow(workflow_id='{workflow_id}') or show_workflow(workflow_id='{workflow_id}'), "
+                    "show the live state to the user, and do not call build_workflow_bulk again until the user confirms."
+                ),
+            )
+        lock_snapshot: dict | None = None
+        if workflow_id:
+            try:
+                lock = client.assert_workflow_revision(
+                    workflow_id,
+                    expected_revision_id=expected_revision_id or None,
+                    base_updated_at=base_updated_at or None,
+                )
+                lock_snapshot = lock.get("snapshot") if isinstance(lock, dict) else None
+            except ConflictError as e:
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    conflict=True,
+                    error=str(e),
+                    hint=(
+                        "Stop after reporting this conflict. Reload the live workflow for display, explain that "
+                        "external edits were detected, and ask the user before applying any rebuilt changes."
+                    ),
+                    warnings=warnings,
+                )
 
         # 1. Check uniqueness of step refs
         step_items: list[tuple[str, str, dict]] = []
@@ -1591,10 +1635,16 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                     error=bind_error.error,
                 )
         elif workflow_id:
-            trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions(
-                client,
-                workflow_id,
-            )
+            if isinstance(lock_snapshot, dict) and isinstance(lock_snapshot.get("elements"), list):
+                trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions_from_elements(
+                    client,
+                    [e for e in lock_snapshot.get("elements", []) if isinstance(e, dict)],
+                )
+            else:
+                trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions(
+                    client,
+                    workflow_id,
+                )
             if questions_for_fields:
                 trigger_form_questions = questions_for_fields
                 trigger_form_fields = form_fields_from_questions(questions_for_fields)
@@ -1605,10 +1655,16 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         trigger_context: tuple[str | None, dict, str | None] | None = None
         if workflow_id:
             if not trigger_form_questions:
-                trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions(
-                    client,
-                    workflow_id,
-                )
+                if isinstance(lock_snapshot, dict) and isinstance(lock_snapshot.get("elements"), list):
+                    trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions_from_elements(
+                        client,
+                        [e for e in lock_snapshot.get("elements", []) if isinstance(e, dict)],
+                    )
+                else:
+                    trigger_form_id_for_fields, questions_for_fields, trigger_error = _trigger_form_questions(
+                        client,
+                        workflow_id,
+                    )
                 if questions_for_fields:
                     trigger_form_questions = questions_for_fields
                     trigger_form_fields = form_fields_from_questions(questions_for_fields)
@@ -1717,18 +1773,22 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             clean_configs[s_ref] = clean_cfg
 
         # 4. Fetch current workflow elements & links
-        try:
-            existing_elements = client.get_elements(workflow_id)
-            existing_links = client.get_links(workflow_id)
-        except JotformAPIError as e:
-            return BuildWorkflowBulkResult(
-                workflow_id=workflow_id,
-                workflow_url=_workflow_url(workflow_id),
-                trigger_form_id=created_trigger_form_id,
-                trigger_form_url=_form_url(created_trigger_form_id),
-                error=str(e),
-                warnings=warnings,
-            )
+        if isinstance(lock_snapshot, dict) and isinstance(lock_snapshot.get("elements"), list):
+            existing_elements = [e for e in lock_snapshot.get("elements", []) if isinstance(e, dict)]
+            existing_links = [l for l in (lock_snapshot.get("links") or []) if isinstance(l, dict)]
+        else:
+            try:
+                existing_elements = client.get_elements(workflow_id)
+                existing_links = client.get_links(workflow_id)
+            except JotformAPIError as e:
+                return BuildWorkflowBulkResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    trigger_form_id=created_trigger_form_id,
+                    trigger_form_url=_form_url(created_trigger_form_id),
+                    error=str(e),
+                    warnings=warnings,
+                )
 
         start_elem = next((e for e in existing_elements if e.get("type") == "workflow_start_point"), None)
         start_id = start_elem.get("element_id") if start_elem else 1
@@ -2052,10 +2112,11 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 trigger_form_id=created_trigger_form_id,
                 trigger_form_url=_form_url(created_trigger_form_id),
                 conflict=True,
-                current_revision_id=e.current_revision_id,
-                current_updated_at=e.current_updated_at,
                 error=str(e),
-                hint="Reload the live workflow, review external edits, and retry with its new revision_id.",
+                hint=(
+                    "Stop after reporting this conflict. Reload the live workflow for display, explain that "
+                    "external edits were detected, and ask the user before applying any rebuilt changes."
+                ),
                 warnings=warnings,
             )
         except JotformAPIError as e:
@@ -2068,6 +2129,15 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 warnings=warnings,
             )
 
+        revision_id = None
+        updated_at = None
+        try:
+            written_snapshot = client.get_workflow_combined(workflow_id)
+            revision_id = workflow_revision_id(written_snapshot)
+            updated_at = workflow_updated_at(written_snapshot)
+        except JotformAPIError as e:
+            warnings.append(f"Could not read workflow revision after write: {e}")
+
         return BuildWorkflowBulkResult(
             workflow_id=workflow_id,
             workflow_url=_workflow_url(workflow_id),
@@ -2078,6 +2148,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             deleted_steps=normalized_delete_ids,
             deleted_links=normalized_delete_link_ids,
             created_links_count=len(link_creates),
+            revision_id=revision_id,
+            updated_at=updated_at,
             warnings=warnings,
             hint=f"Next required step: call show_workflow(workflow_id='{workflow_id}') immediately to display the interactive visual workflow canvas to the user.",
         )
@@ -2132,8 +2204,6 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 workflow_id=workflow_id,
                 workflow_url=_workflow_url(workflow_id),
                 conflict=result.conflict,
-                revision_id=result.current_revision_id,
-                updated_at=result.current_updated_at,
                 error=result.error,
                 hint=result.hint,
             )

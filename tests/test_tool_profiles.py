@@ -31,7 +31,6 @@ def test_single_tool_surface_hides_deprecated_and_field_lookup_tools():
         "get_workflow",
         "build_workflow_bulk",
         "create_form_with_ai",
-        "delete_step",
         "delete_workflow",
     ]
 

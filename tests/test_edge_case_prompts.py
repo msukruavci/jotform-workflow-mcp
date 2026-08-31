@@ -91,6 +91,19 @@ class MockLiveClient:
             "status": wf.get("status"),
         }
 
+    def assert_workflow_revision(
+        self,
+        workflow_id: str,
+        *,
+        expected_revision_id: str | None = None,
+        base_updated_at: str | None = None,
+    ) -> dict:
+        return {
+            "revision_id": expected_revision_id,
+            "updated_at": base_updated_at,
+            "snapshot": self.get_workflow_combined(workflow_id),
+        }
+
     def get_elements(self, workflow_id: str) -> list[dict]:
         wf = self.workflows.get(workflow_id, {})
         return list(wf.get("elements", []))
@@ -120,7 +133,14 @@ class MockLiveClient:
             return self.forms[form_id]["questions"]
         return {}
 
-    def update_tree(self, workflow_id: str, elements: list[dict] | None = None, links: list[dict] | None = None) -> dict:
+    def update_tree(
+        self,
+        workflow_id: str,
+        elements: list[dict] | None = None,
+        links: list[dict] | None = None,
+        expected_revision_id: str | None = None,
+        base_updated_at: str | None = None,
+    ) -> dict:
         elements = elements or []
         links = links or []
         self.update_calls.append({"workflow_id": workflow_id, "elements": elements, "links": links})
@@ -170,7 +190,14 @@ class DummyMCP:
 
     def tool(self):
         def decorator(fn):
-            self.tools[fn.__name__] = fn
+            def wrapped(*args, **kwargs):
+                if fn.__name__ == "build_workflow_bulk":
+                    workflow_id = kwargs.get("workflow_id") or (args[0] if args else "")
+                    if workflow_id and not kwargs.get("expected_revision_id") and not kwargs.get("base_updated_at"):
+                        kwargs["expected_revision_id"] = "test-revision"
+                return fn(*args, **kwargs)
+
+            self.tools[fn.__name__] = wrapped
             return fn
         return decorator
 

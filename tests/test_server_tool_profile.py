@@ -50,6 +50,8 @@ def test_server_instructions_describe_decoupled_three_tool_sequence(monkeypatch)
     assert "form_prompt on build_workflow_bulk remains a backward-compatible fallback only" in instructions
     assert "Only use create_form_with_ai when the user asks for a standalone form" not in instructions
     assert "Prefer keeping AI form creation, workflow creation" not in instructions
+    assert "If a tool reports conflict=true, do not auto-retry the write" in instructions
+    assert "ask the user whether to apply the intended change" in instructions
 
 
 def test_tool_schemas_expose_decoupled_form_then_workflow_contract(monkeypatch):

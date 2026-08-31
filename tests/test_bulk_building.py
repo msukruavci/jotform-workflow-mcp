@@ -14,7 +14,14 @@ class DummyMCP:
 
     def tool(self):
         def decorator(fn):
-            self.tools[fn.__name__] = fn
+            def wrapped(*args, **kwargs):
+                if fn.__name__ == "build_workflow_bulk":
+                    workflow_id = kwargs.get("workflow_id") or (args[0] if args else "")
+                    if workflow_id and not kwargs.get("expected_revision_id") and not kwargs.get("base_updated_at"):
+                        kwargs["expected_revision_id"] = "test-revision"
+                return fn(*args, **kwargs)
+
+            self.tools[fn.__name__] = wrapped
             return fn
         return decorator
 
@@ -42,7 +49,15 @@ class DummyClient:
     def get_links(self, workflow_id):
         return list(self.links)
 
-    def update_tree(self, workflow_id, *, elements=None, links=None):
+    def update_tree(
+        self,
+        workflow_id,
+        *,
+        elements=None,
+        links=None,
+        expected_revision_id=None,
+        base_updated_at=None,
+    ):
         self.update_calls.append({"workflow_id": workflow_id, "elements": elements, "links": links})
         return {}
 
@@ -51,7 +66,20 @@ class DummyClient:
         return {
             "workflow": {"id": workflow_id, "title": "Demo"},
             "elements": list(self.elements),
-            "links": [],
+            "links": list(self.links),
+        }
+
+    def assert_workflow_revision(
+        self,
+        workflow_id,
+        *,
+        expected_revision_id=None,
+        base_updated_at=None,
+    ):
+        return {
+            "revision_id": expected_revision_id,
+            "updated_at": base_updated_at,
+            "snapshot": self.get_workflow_combined(workflow_id),
         }
 
     def get_form(self, form_id):
@@ -234,7 +262,7 @@ def test_decoupled_university_workflow_runs_create_build_show_with_zero_retry():
 
     assert preview.structured_content["view"] == "workflow-preview"
     assert preview.structured_content["data"]["workflow_id"] == "wf_new_1"
-    assert client.get_workflow_combined_calls == ["wf_new_1", "wf_new_1"]
+    assert client.get_workflow_combined_calls == ["wf_new_1", "wf_new_1", "wf_new_1"]
 
 
 def test_build_workflow_bulk_linear_chain():
@@ -434,8 +462,8 @@ def test_build_workflow_bulk_reuses_trigger_form_questions_during_normalization(
     result = mcp.tools["build_workflow_bulk"]("wf_1", steps=steps, connections=connections)
 
     assert result.error is None
-    # One read discovers trigger form fields, one read captures the revision snapshot.
-    assert client.get_workflow_combined_calls == ["wf_1", "wf_1"]
+    # Early lock check, revision snapshot capture, and post-write revision read.
+    assert client.get_workflow_combined_calls == ["wf_1", "wf_1", "wf_1"]
     assert client.get_form_questions_calls == ["form_1"]
 
 

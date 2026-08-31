@@ -120,7 +120,7 @@ class ConflictError(RuntimeError):
         super().__init__(
             f"Workflow {workflow_id} changed in Jotform after it was read. "
             "Reload it with get_workflow or show_workflow, review the live graph, "
-            "and retry from the new revision."
+            "and ask the user before applying changes on top of the new version."
         )
         self.workflow_id = str(workflow_id)
         self.expected_revision_id = expected_revision_id
