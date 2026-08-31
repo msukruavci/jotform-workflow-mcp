@@ -10,14 +10,14 @@ def test_mcp_uses_single_tool_surface_even_when_profile_env_is_set(monkeypatch):
     tools = asyncio.run(mcp.list_tools())
     tool_names = {tool.name for tool in tools}
 
-    assert len(tools) == 17
+    assert len(tools) == 16
     assert "build_workflow_bulk" in tool_names
     assert "apply_workflow_canvas_diff" in tool_names
     assert "create_form_with_ai" in tool_names
     assert "search_workflow_templates" in tool_names
     assert "get_workflow_template" not in tool_names
     assert "get_step_details" in tool_names
-    assert "delete_step" in tool_names
+    assert "delete_step" not in tool_names
     assert "restore_workflow_revision" in tool_names
     assert "get_form_fields" not in tool_names
     assert "create_workflow" not in tool_names
@@ -41,7 +41,7 @@ def test_server_instructions_describe_decoupled_three_tool_sequence(monkeypatch)
     assert "do not call inspect_workflow_gaps" in instructions
     assert "Do not use or suggest any separate Jotform Form plugin/tool" in instructions
     assert "Standalone workflow creation tools and low-level updateTree tools" in instructions
-    assert "add_step/connect_steps/disconnect_steps/update_step are intentionally hidden" in instructions
+    assert "add_step/connect_steps/disconnect_steps/update_step/delete_step are intentionally hidden" in instructions
     assert "One-write rule" in instructions
     assert "get_form_fields" not in instructions
     assert "first call create_form_with_ai(prompt=...)" in instructions

@@ -130,7 +130,7 @@ use its authoritative `health` object for unreachable steps, dead ends,
 unconnected branches, and dangling links.
 
 **Prefer bulk structural edits.** Low-level updateTree tools such as
-`add_step`, `connect_steps`, `disconnect_steps`, and `update_step` are not part
+`add_step`, `connect_steps`, `disconnect_steps`, `update_step`, and `delete_step` are not part
 of the normal model-facing surface. For workflow creation, branching changes,
 new steps, rewiring, step deletions, or content updates, use `build_workflow_bulk` with the
 complete intended graph, step configs, and optional `delete_step_ids` (e.g. `delete_step_ids=['8', '9']`). When replacing or removing steps, `build_workflow_bulk` performs deletions and additions atomically in one shot.

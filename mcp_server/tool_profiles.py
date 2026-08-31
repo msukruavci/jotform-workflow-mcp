@@ -24,7 +24,6 @@ FAST_TOOLS = frozenset({
     "list_workflow_revisions",
     "list_forms",
     "search_workflow_templates",
-    "delete_step",
     "publish_workflow",
     "restore_workflow_revision",
     "delete_workflow",
@@ -39,6 +38,7 @@ DEPRECATED_TOOL_NAMES = frozenset({
     "get_form_fields",
     "inspect_workflow_gaps",
     "update_step",
+    "delete_step",
 })
 
 TOOL_FEATURES = {"templates": True, "gap_check": False}
