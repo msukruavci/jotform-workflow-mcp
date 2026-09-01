@@ -94,11 +94,7 @@ def test_ui_resource_is_registered_with_mcp_app_mime_type():
     assert resource.meta["ui"]["csp"] == {
         "connectDomains": ["https://api.jotform.com", "https://*.jotform.com"],
         "resourceDomains": ["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
-        "frameDomains": [
-            "https://www.jotform.com",
-            "https://*.jotform.com",
-            "https://*.jotform.pro",
-        ],
+        "frameDomains": [],
         "baseUriDomains": [],
     }
     assert resource.meta["ui"]["prefersBorder"] is True

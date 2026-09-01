@@ -14,11 +14,13 @@ FAST_TOOL_NAMES = frozenset({
     "get_step_schema",
     "list_workflows",
     "get_workflow",
+    "get_step_details",
     "inspect_workflow_gaps",
     "list_forms",
     "get_form_fields",
     "search_workflow_templates",
     "build_workflow_bulk",
+    "update_step",
     "publish_workflow",
     "delete_workflow",
 })

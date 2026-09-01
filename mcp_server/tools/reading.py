@@ -527,6 +527,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         return FormFieldList(form_id=form_id, form_url=_form_url(form_id), fields=[
             FormField(
                 field_id=qid,
+                name=q.get("name"),
                 label=q.get("text"),
                 type=q.get("type"),
                 required=q.get("required"),

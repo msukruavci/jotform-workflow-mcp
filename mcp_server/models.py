@@ -229,6 +229,10 @@ class FormList(BaseModel):
 
 class FormField(BaseModel):
     field_id: str | None = None
+    name: str | None = Field(
+        default=None,
+        description="Jotform's canonical question name used in field tokens",
+    )
     label: str | None = None
     type: str | None = None
     required: str | bool | None = None
