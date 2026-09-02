@@ -197,6 +197,136 @@ def test_merge_outcome_updates_preserves_existing_link_ids():
     assert merged["outcomes"][1]["branchName"] == "Accepted Application"
 
 
+def test_config_from_update_tree_result_merges_the_matching_element_response():
+    config = building._config_from_update_tree_result(
+        current={"element_id": 7, "name": "Approval", "untouched": True},
+        applied_config={"approver": [{"text": "submitted@example.com"}]},
+        update_response={
+            "result": {
+                "elements": [{
+                    "action": "update",
+                    "elementID": 7,
+                    "data": {
+                        "approver": [{"text": "saved@example.com"}],
+                        "serverFlag": "Yes",
+                    },
+                }]
+            }
+        },
+        step_id="7",
+    )
+
+    assert config == {
+        "element_id": 7,
+        "name": "Approval",
+        "untouched": True,
+        "approver": [{"text": "saved@example.com"}],
+        "serverFlag": "Yes",
+    }
+
+
+def test_config_from_update_tree_result_falls_back_to_validated_write_config():
+    config = building._config_from_update_tree_result(
+        current={"element_id": 7, "name": "Approval"},
+        applied_config={"approver": [{"text": "saved@example.com"}]},
+        update_response={},
+        step_id="7",
+    )
+
+    assert config["name"] == "Approval"
+    assert config["approver"] == [{"text": "saved@example.com"}]
+
+
+def test_update_step_returns_saved_config_from_update_tree(monkeypatch):
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.element_details["7"] = {
+        "element_id": 7,
+        "type": "workflow_approval",
+        "name": "Approval",
+        "approver": [{"text": "old@example.com", "value": "old@example.com"}],
+    }
+
+    def update_tree(workflow_id, *, elements=None, links=None):
+        client.updated = True
+        client.update_calls.append({"elements": elements, "links": links})
+        return {
+            "result": {
+                "elements": [{
+                    "action": "update",
+                    "elementID": 7,
+                    "data": {
+                        "approver": [{
+                            "text": "saved@example.com",
+                            "value": "saved@example.com",
+                        }]
+                    },
+                }]
+            }
+        }
+
+    client.update_tree = update_tree
+    monkeypatch.setattr(building.revision_log, "capture_workflow_revision", lambda *args, **kwargs: None)
+    building.register(mcp, client)
+
+    result = mcp.tools["update_step"](
+        "wf_1",
+        "7",
+        {"approver": [{"text": "saved@example.com", "value": "saved@example.com"}]},
+    )
+
+    assert result.error is None
+    assert result.config["name"] == "Approval"
+    assert result.config["approver"] == [{
+        "text": "saved@example.com",
+        "value": "saved@example.com",
+    }]
+
+
+def test_update_email_step_does_not_overwrite_untouched_settings(monkeypatch):
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.element_details["7"] = {
+        "element_id": 7,
+        "type": "workflow_send_email",
+        "subject": "Old subject",
+        "senderEmail": "custom@example.com",
+        "cc": [{"text": "copy@example.com"}],
+    }
+    monkeypatch.setattr(building.revision_log, "capture_workflow_revision", lambda *args, **kwargs: None)
+    building.register(mcp, client)
+
+    result = mcp.tools["update_step"]("wf_1", "7", {"subject": "New subject"})
+
+    assert result.error is None
+    update_data = client.update_calls[-1]["elements"][0]["data"]
+    assert update_data["subject"] == "New subject"
+    assert update_data["isDirty"] == "Yes"
+    assert "senderEmail" not in update_data
+    assert "cc" not in update_data
+    assert "attachment" not in update_data
+
+
+def test_update_email_step_keeps_sender_name_separate_from_creator_metadata(monkeypatch):
+    mcp = DummyMCP()
+    client = DummyClient()
+    client.element_details["7"] = {
+        "element_id": 7,
+        "type": "workflow_send_email",
+        "fromName": "Gökhan",
+        "senderName": "Jotform",
+    }
+    monkeypatch.setattr(building.revision_log, "capture_workflow_revision", lambda *args, **kwargs: None)
+    building.register(mcp, client)
+
+    result = mcp.tools["update_step"]("wf_1", "7", {"senderName": "Jotform2"})
+
+    assert result.error is None
+    update_data = client.update_calls[-1]["elements"][0]["data"]
+    assert update_data["senderName"] == "Jotform2"
+    assert "fromName" not in update_data
+
+
 def test_normalize_email_recipients_converts_field_id_to_question_reference():
     client = DummyClient()
 
@@ -258,6 +388,22 @@ def test_normalize_email_config_rewrites_content_field_tokens_to_question_names(
     assert "normalized email content field tokens" in hint
     assert "{q2_fullname0}" in normalized["content"]
     assert "{2}" not in normalized["content"]
+
+
+def test_normalize_email_config_preserves_rich_text_markup_on_partial_update():
+    client = DummyClient()
+
+    normalized, _, error = building._normalize_email_config(
+        client,
+        "wf_1",
+        {"content": "<p>Hello <strong>{q2_fullname0}</strong></p>"},
+        apply_defaults=False,
+    )
+
+    assert error is None
+    assert "<p>Hello <strong>{q2_fullname0}</strong></p>" in normalized["content"]
+    assert "&lt;p&gt;" not in normalized["content"]
+    assert normalized["isDirty"] == "Yes"
 
 
 def test_normalize_assignee_fields_matches_builder_fixed_email_shape():

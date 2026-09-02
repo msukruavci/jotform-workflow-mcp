@@ -496,6 +496,14 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
         if "afterAmount" in execute_when:
             execute_when["afterAmount"] = str(execute_when["afterAmount"])
 
+    if canonical_type in ("workflow_send_email", "workflow_reminder_email"):
+        if "from_name" in config and "senderName" not in config:
+            config["senderName"] = config.pop("from_name")
+        if "fromEmail" in config and "senderEmail" not in config:
+            config["senderEmail"] = config.pop("fromEmail")
+        elif "from_email" in config and "senderEmail" not in config:
+            config["senderEmail"] = config.pop("from_email")
+
     schema = schema_registry.get_simplified_schema(step_type)
     if schema is None:
         raise ValidationError(
@@ -504,6 +512,13 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
         )
 
     by_name = {f["name"]: f for f in schema["fields"]}
+    # The checked-in schema trails the live Email composer. senderName is the
+    # actual visible sender while fromName can hold legacy creator metadata;
+    # accept both without collapsing these distinct production values.
+    if canonical_type in ("workflow_send_email", "workflow_reminder_email"):
+        from_name_field = by_name.get("fromName")
+        if from_name_field:
+            by_name["senderName"] = {**from_name_field, "name": "senderName"}
     clean: dict = {}
     warnings: list[str] = []
 

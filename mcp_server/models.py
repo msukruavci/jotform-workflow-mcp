@@ -140,6 +140,10 @@ class WorkflowPreviewData(BaseModel):
     title: str | None = None
     status: str | None = None
     publish_status: str | None = None
+    settings_runtime_url: str | None = Field(
+        default=None,
+        description="Optional HTTPS UMD runtime used by the MCP settings host",
+    )
     elements: list[dict] = Field(
         default_factory=list,
         description="Persisted Workflow element properties for the native read-only canvas",
@@ -370,6 +374,10 @@ class DisconnectStepsResult(BaseModel):
 
 class UpdateStepResult(BaseModel):
     step_id: str | None = None
+    config: dict | None = Field(
+        None,
+        description="Saved element config derived from the updateTree result.",
+    )
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
     hint: str | None = None

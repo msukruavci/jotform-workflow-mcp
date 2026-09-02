@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from mcp.server.apps import Apps, ResourceCsp
 from pydantic import Field
@@ -13,7 +14,7 @@ from mcp_server.jotform_client import JotformClient
 from mcp_server.models import WorkflowListUIResult, WorkflowPreviewUIResult
 from mcp_server.tools.reading import read_workflow_list, read_workflow_preview
 
-WORKFLOW_UI_RESOURCE_VERSION = 47
+WORKFLOW_UI_RESOURCE_VERSION = 51
 WORKFLOW_UI_RESOURCE_URI = (
     f"ui://jotform/workflows/v{WORKFLOW_UI_RESOURCE_VERSION}.html"
 )
@@ -32,6 +33,26 @@ _FALLBACK_HTML = """<!doctype html>
   </body>
 </html>
 """
+
+
+def workflow_settings_runtime_url() -> str | None:
+    """Return the explicitly configured HTTPS runtime without guessing a host."""
+    value = os.environ.get("WORKFLOW_SETTINGS_RUNTIME_URL", "").strip()
+    if not value:
+        return None
+
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+        LOGGER.warning("Ignoring invalid WORKFLOW_SETTINGS_RUNTIME_URL; HTTPS is required.")
+        return None
+    return value
+
+
+def _runtime_resource_origin(runtime_url: str | None) -> str | None:
+    if not runtime_url:
+        return None
+    parsed = urlsplit(runtime_url)
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def _ui_asset_candidates() -> list[Path]:
@@ -66,6 +87,15 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
     """Create the UI extension before it is attached to the MCP server."""
     apps = Apps()
     resource_html = html if html is not None else load_workflow_ui_html()
+    settings_runtime_url = workflow_settings_runtime_url()
+    runtime_resource_origin = _runtime_resource_origin(settings_runtime_url)
+    resource_domains = [
+        "https://*.jotform.com",
+        "https://*.jotform.io",
+        "https://cdn.jotfor.ms",
+    ]
+    if runtime_resource_origin and runtime_resource_origin not in resource_domains:
+        resource_domains.append(runtime_resource_origin)
 
     for resource_uri in (*WORKFLOW_UI_LEGACY_RESOURCE_URIS, WORKFLOW_UI_RESOURCE_URI):
         apps.add_html_resource(
@@ -76,7 +106,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             description="Read-only workflow list and verified workflow graph preview.",
             csp=ResourceCsp(
                 connect_domains=["https://api.jotform.com", "https://*.jotform.com"],
-                resource_domains=["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
+                resource_domains=resource_domains,
                 frame_domains=[],
                 base_uri_domains=[],
             ),
@@ -130,6 +160,8 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
         update operations have finished and their final state was read back.
         Do not call it for intermediate write steps.
         """
-        return WorkflowPreviewUIResult(data=read_workflow_preview(client, workflow_id))
+        data = read_workflow_preview(client, workflow_id)
+        data.settings_runtime_url = settings_runtime_url
+        return WorkflowPreviewUIResult(data=data)
 
     return apps
