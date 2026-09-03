@@ -1,20 +1,200 @@
 [
   {
     "name": "show_workflows",
-    "description": "Show the user's workflows in the interactive workflow list UI.\n\n        Use this presentation tool when the user asks to see, browse, list,\n        or choose from their workflows. It reads Jotform directly; never build\n        its payload from assistant prose or remembered tool results.",
+    "description": "\n        Show the user's workflows in the interactive workflow list UI.\n\n        Use this presentation tool when the user asks to see, browse, list,\n        or choose from their workflows. It reads Jotform directly; never build\n        its payload from assistant prose or remembered tool results.\n        ",
     "input_schema": {
-      "properties": {},
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1-100. Default 50.",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Zero-based page offset. Default 0.",
+          "title": "Offset",
+          "type": "integer"
+        }
+      },
       "title": "show_workflowsArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "WorkflowList": {
+          "properties": {
+            "workflows": {
+              "items": {
+                "$ref": "#/$defs/WorkflowSummary"
+              },
+              "title": "Workflows",
+              "type": "array"
+            },
+            "limit": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            },
+            "count": {
+              "default": 0,
+              "title": "Count",
+              "type": "integer"
+            },
+            "has_more": {
+              "default": false,
+              "title": "Has More",
+              "type": "boolean"
+            },
+            "next_offset": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Offset"
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Error"
+            }
+          },
+          "title": "WorkflowList",
+          "type": "object"
+        },
+        "WorkflowSummary": {
+          "properties": {
+            "workflow_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Workflow Id"
+            },
+            "workflow_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Workflow Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "ENABLED / DISABLED etc.",
+              "title": "Status"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Updated At"
+            },
+            "run_count": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "How many times this workflow has run",
+              "title": "Run Count"
+            }
+          },
+          "title": "WorkflowSummary",
+          "type": "object"
+        }
+      },
+      "description": "Versioned payload consumed by the workflow MCP UI list view.",
+      "properties": {
+        "view": {
+          "const": "workflow-list",
+          "default": "workflow-list",
+          "title": "View",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "default": 1,
+          "title": "Schemaversion",
+          "type": "integer"
+        },
+        "data": {
+          "$ref": "#/$defs/WorkflowList"
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "WorkflowListUIResult",
       "type": "object"
     }
   },
   {
     "name": "show_workflow",
-    "description": "Show one workflow in the interactive read-only workflow preview UI.\n\n        Use when the user asks to open, show, preview, or inspect a workflow.\n        Also call this exactly once after all requested workflow creation or\n        update operations have finished and their final state was read back.\n        Do not call it for intermediate write steps.",
+    "description": "\n        Show one workflow in the interactive read-only workflow preview UI.\n\n        Use when the user asks to open, show, preview, or inspect a workflow.\n        Call immediately after build_workflow_bulk to present the interactive UI\n        canvas, or after any other workflow update operations have finished.\n        Do NOT insert an extra get_workflow call before show_workflow — build_workflow_bulk\n        already returns the complete summary, and show_workflow fetches and verifies the\n        live workflow graph internally. Do not call it for intermediate write steps.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
-          "description": "Workflow id from list_workflows, create_workflow, or a write result.",
+          "description": "Workflow id returned by build_workflow_bulk or resolved from list_workflows.",
           "title": "Workflow Id",
           "type": "string"
         }
@@ -24,38 +204,121 @@
       ],
       "title": "show_workflowArguments",
       "type": "object"
-    }
+    },
+    "output_schema": null
   },
   {
     "name": "list_step_types",
-    "description": "List the workflow step types you can add to a workflow.\n\n        Each entry gives an add_step step_type, the name the Jotform builder\n        shows for it (ui_name), and a one-line description. Some UI entries\n        are variants with a canonical_type and subtype; pass the listed\n        step_type directly to add_step.\n\n        schema_available=false means this server has no field schema for that\n        type: it can appear in an existing workflow, but get_step_schema will\n        not describe it. Call get_step_schema on a type before configuring it.",
+    "description": "\n        List the workflow step types you can add to a workflow.\n\n        Use this only when the user asks what step types exist or when you need\n        a specialized step beyond the common workflow_approval,\n        workflow_assign_task, workflow_send_email, workflow_binary_decision,\n        workflow_integration blank shell, and workflow_conditional_branch\n        patterns. Do not call it during a normal new-workflow build just to\n        rediscover approval/email/task/integration shell.\n\n        Each entry gives a build_workflow_bulk step type, the name the Jotform\n        builder shows for it (ui_name), and a one-line description. Some UI\n        entries are variants with a canonical_type and subtype; pass the listed\n        step_type directly when creating steps.\n\n        schema_available=false means this server has no field schema for that\n        type: it can appear in an existing workflow, but get_step_schema will\n        not describe it.\n        ",
     "input_schema": {
       "properties": {
         "category": {
           "default": "",
-          "description": "Optional filter — \"basic\" (email, task, approval), \"logic\" (conditions, branching, loops), \"ai\" (AI-powered steps), or \"integration\" (webhooks, payments, signing). Leave empty to see all.",
+          "description": "Optional filter — \"basic\", \"logic\", \"ai\", or \"integration\". Skip this for ordinary approval/task/email/integration shell workflows; build_workflow_bulk already documents those common step configs.",
           "title": "Category",
           "type": "string"
         }
       },
       "title": "list_step_typesArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "StepTypeSummary": {
+          "properties": {
+            "step_type": {
+              "title": "Step Type",
+              "type": "string"
+            },
+            "category": {
+              "title": "Category",
+              "type": "string"
+            },
+            "description": {
+              "title": "Description",
+              "type": "string"
+            },
+            "ui_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "What this step is called in the Jotform builder UI",
+              "title": "Ui Name"
+            },
+            "canonical_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Actual API element type used when this is a UI variant",
+              "title": "Canonical Type"
+            },
+            "subtype": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Automatically applied subtype for a UI variant",
+              "title": "Subtype"
+            },
+            "schema_available": {
+              "default": true,
+              "title": "Schema Available",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "step_type",
+            "category",
+            "description"
+          ],
+          "title": "StepTypeSummary",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "step_types": {
+          "items": {
+            "$ref": "#/$defs/StepTypeSummary"
+          },
+          "title": "Step Types",
+          "type": "array"
+        }
+      },
+      "title": "StepTypeList",
+      "type": "object"
     }
   },
   {
     "name": "get_step_schema",
-    "description": "Get the configurable fields for one or more workflow step types.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically. For\n        multiple unfamiliar types, pass step_types=[...] to fetch every schema\n        in one tool roundtrip.",
+    "description": "\n        Get the configurable fields for one or more workflow step types.\n\n        Use this for unfamiliar/specialized steps only. For common approval,\n        task, email, integration shell, and binary branch steps,\n        build_workflow_bulk's description includes enough config guidance and\n        you should continue directly to build_workflow_bulk.\n\n        Returns field names, types, allowed values and descriptions. Where a\n        field takes a list of objects, item_fields shows what one item holds.\n        Positioning fields are omitted — those are handled automatically. For\n        multiple unfamiliar types, pass step_types=[...] to fetch every schema\n        in one tool roundtrip.\n        ",
     "input_schema": {
       "properties": {
         "step_type": {
           "default": "",
-          "description": "Single step type name (e.g. \"workflow_send_email\").",
+          "description": "Single specialized step type name. Skip for common workflow_approval, workflow_assign_task, workflow_send_email, workflow_integration shell, and workflow_binary_decision.",
           "title": "Step Type",
           "type": "string"
         },
         "step_types": {
           "default": [],
-          "description": "Optional list of step type names to retrieve schemas for in a single batch call.",
+          "description": "Optional list of specialized step type names to retrieve schemas for in a single batch call.",
           "items": {
             "type": "string"
           },
@@ -65,20 +328,423 @@
       },
       "title": "get_step_schemaArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "SchemaField": {
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "type": {
+              "title": "Type",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            },
+            "fixed_value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Fixed Value"
+            },
+            "allowed_values": {
+              "items": {},
+              "title": "Allowed Values",
+              "type": "array"
+            },
+            "item_fields": {
+              "additionalProperties": true,
+              "title": "Item Fields",
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "title": "SchemaField",
+          "type": "object"
+        },
+        "StepSchemaItem": {
+          "properties": {
+            "step_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Step Type"
+            },
+            "canonical_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Canonical Type"
+            },
+            "subtype": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Subtype"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            },
+            "ui_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Ui Name"
+            },
+            "fields": {
+              "items": {
+                "$ref": "#/$defs/SchemaField"
+              },
+              "title": "Fields",
+              "type": "array"
+            }
+          },
+          "title": "StepSchemaItem",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "step_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Type"
+        },
+        "canonical_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Canonical Type"
+        },
+        "subtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subtype"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "ui_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Name"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/SchemaField"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "schemas": {
+          "additionalProperties": {
+            "$ref": "#/$defs/StepSchemaItem"
+          },
+          "description": "Batch result mapping step_type to its schema result",
+          "title": "Schemas",
+          "type": "object"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        },
+        "available_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Available Types",
+          "type": "array"
+        }
+      },
+      "title": "StepSchema",
+      "type": "object"
     }
   },
   {
     "name": "list_workflows",
-    "description": "List the user's workflows.\n\n        Returns each workflow's id, title, status, when it was last updated,\n        and run_count — how many times it has actually run, which is the\n        quickest way to tell a live workflow from an abandoned draft.\n\n        Use the id with get_workflow to see the steps.",
+    "description": "\n        List one page of the user's workflows.\n\n        Returns each workflow's id, title, status, when it was last updated,\n        and run_count — how many times it has actually run, which is the\n        quickest way to tell a live workflow from an abandoned draft.\n\n        Use the id with get_workflow to see the steps.\n        ",
     "input_schema": {
-      "properties": {},
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1-100. Default 50.",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Zero-based page offset. Default 0.",
+          "title": "Offset",
+          "type": "integer"
+        }
+      },
       "title": "list_workflowsArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "WorkflowSummary": {
+          "properties": {
+            "workflow_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Workflow Id"
+            },
+            "workflow_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Workflow Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "ENABLED / DISABLED etc.",
+              "title": "Status"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Updated At"
+            },
+            "run_count": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "How many times this workflow has run",
+              "title": "Run Count"
+            }
+          },
+          "title": "WorkflowSummary",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/WorkflowSummary"
+          },
+          "title": "Workflows",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "count": {
+          "default": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "has_more": {
+          "default": false,
+          "title": "Has More",
+          "type": "boolean"
+        },
+        "next_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Offset"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "WorkflowList",
       "type": "object"
     }
   },
   {
     "name": "get_workflow",
-    "description": "Get a workflow's structure: its steps, how they connect, and whether\n        the structure is sound.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, the branch name on a conditional\n        branch, or the button/outcome text on an approval/task. That is how\n        you tell two paths apart. A split's paths are equivalent and carry\n        no outcome.\n\n        `health` reports steps that can never run (unreachable from the start\n        point), steps that lead nowhere, branches defined but wired to nothing,\n        and step types this server has no schema for. A workflow can look fine\n        as a list and still be broken.\n\n        Steps are summaries only — use get_step_details for one step's full\n        configuration.",
+    "description": "\n        Get an existing workflow's structure: its steps, connections, and generic step state summaries.\n\n        Use this before every mutation of an existing workflow to obtain fresh\n        numeric step/link IDs and revision_id. It is also the compact read tool\n        when the user asks to inspect a workflow. After a successful bulk write,\n        call show_workflow directly instead of reading again.\n\n        Each connection carries an `outcome` when it leaves a branching step:\n        TRUE or FALSE on an if/else, the branch name on a conditional\n        branch, or the button/outcome text on an approval/task. That is how\n        you tell two paths apart. A split's paths are equivalent and carry\n        no outcome.\n\n        `step_states` is the generic exact-match source for deciding whether a\n        requested workflow action already exists. If a step's config_complete is\n        false or missing_fields is not empty, do not treat it as completed. This\n        is not permission to repair, connect, or delete that step unless the user\n        explicitly requested that exact change.\n        `email_steps` is an additional compact view for email/survey/notification\n        requests.\n\n        Steps are summaries only — use get_step_details for one non-email step's\n        full configuration.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -92,11 +758,726 @@
       ],
       "title": "get_workflowArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "Connection": {
+          "properties": {
+            "link_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Link Id"
+            },
+            "from_step": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "From Step"
+            },
+            "to_step": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "To Step"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Which branch this connection is — TRUE or FALSE on an if/else step, the branch name on a conditional branch, or the outcome button text on an approval/task. None means the step it leaves does not branch (a split's paths are equivalent, so they carry no label).",
+              "title": "Outcome"
+            },
+            "from_port": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Canvas exit port. Carries no meaning about which branch this is — it is layout, not logic. Kept because writing a link back requires it.",
+              "title": "From Port"
+            }
+          },
+          "title": "Connection",
+          "type": "object"
+        },
+        "EmailStepIncoming": {
+          "properties": {
+            "link_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Link Id"
+            },
+            "from_step": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "From Step"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
+            }
+          },
+          "title": "EmailStepIncoming",
+          "type": "object"
+        },
+        "EmailStepSummary": {
+          "properties": {
+            "step_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Step Id"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "to": {
+              "items": {
+                "type": "string"
+              },
+              "title": "To",
+              "type": "array"
+            },
+            "subject": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Subject"
+            },
+            "content_present": {
+              "default": false,
+              "title": "Content Present",
+              "type": "boolean"
+            },
+            "content_excerpt": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Short plain-text email body preview, omitted when empty.",
+              "title": "Content Excerpt"
+            },
+            "missing_fields": {
+              "description": "Required email fields that are empty in Jotform. If this is not empty, the step must not be treated as satisfying a requested email/survey/notification.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Missing Fields",
+              "type": "array"
+            },
+            "incoming": {
+              "description": "How this email is reached; outcome identifies the approval/task branch.",
+              "items": {
+                "$ref": "#/$defs/EmailStepIncoming"
+              },
+              "title": "Incoming",
+              "type": "array"
+            }
+          },
+          "title": "EmailStepSummary",
+          "type": "object"
+        },
+        "FormField": {
+          "properties": {
+            "field_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact Jotform question ID used in workflow field references.",
+              "title": "Field Id"
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact Jotform unique question name used inside dynamic variables, for example {q3_email1}. Prefer this over guessing camelCase labels.",
+              "title": "Name"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact visible form-field label.",
+              "title": "Label"
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact Jotform question/control type.",
+              "title": "Type"
+            },
+            "required": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Whether the form field is required, as returned by Jotform.",
+              "title": "Required"
+            },
+            "options": {
+              "description": "Exact allowed option texts for dropdown/radio/choice fields",
+              "items": {
+                "type": "string"
+              },
+              "title": "Options",
+              "type": "array"
+            }
+          },
+          "title": "FormField",
+          "type": "object"
+        },
+        "Step": {
+          "properties": {
+            "step_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Step Id"
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Type"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Human label; defaults from type",
+              "title": "Label"
+            },
+            "trigger_form_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trigger Form Id"
+            },
+            "trigger_form_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trigger Form Url"
+            },
+            "sign_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sign Url"
+            },
+            "known_type": {
+              "default": true,
+              "description": "False if this type has no schema on record",
+              "title": "Known Type",
+              "type": "boolean"
+            }
+          },
+          "title": "Step",
+          "type": "object"
+        },
+        "StepEdgeSummary": {
+          "properties": {
+            "link_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Link Id"
+            },
+            "step_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Step Id"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
+            }
+          },
+          "title": "StepEdgeSummary",
+          "type": "object"
+        },
+        "StepStateSummary": {
+          "properties": {
+            "step_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Step Id"
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Type"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "incoming": {
+              "items": {
+                "$ref": "#/$defs/StepEdgeSummary"
+              },
+              "title": "Incoming",
+              "type": "array"
+            },
+            "outgoing": {
+              "items": {
+                "$ref": "#/$defs/StepEdgeSummary"
+              },
+              "title": "Outgoing",
+              "type": "array"
+            },
+            "key_config": {
+              "additionalProperties": true,
+              "description": "Small deterministic config summary for the step type. Avoids raw Jotform UI metadata and exposes only fields useful for exact-match decisions.",
+              "title": "Key Config",
+              "type": "object"
+            },
+            "missing_fields": {
+              "description": "Important fields missing from this persisted step. If non-empty, do not treat the step as satisfying a user's requested action.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Missing Fields",
+              "type": "array"
+            },
+            "config_complete": {
+              "default": true,
+              "description": "False when missing_fields is non-empty.",
+              "title": "Config Complete",
+              "type": "boolean"
+            }
+          },
+          "title": "StepStateSummary",
+          "type": "object"
+        },
+        "WorkflowHealth": {
+          "description": "Internal/advisory graph diagnostics, never mutation instructions.",
+          "properties": {
+            "total_steps": {
+              "default": 0,
+              "title": "Total Steps",
+              "type": "integer"
+            },
+            "unreachable_steps": {
+              "description": "Advisory only: steps with no path from start; they may be intentional drafts",
+              "items": {
+                "type": "string"
+              },
+              "title": "Unreachable Steps",
+              "type": "array"
+            },
+            "dead_end_steps": {
+              "description": "Advisory only: reached leaf steps; they may intentionally end the draft flow",
+              "items": {
+                "type": "string"
+              },
+              "title": "Dead End Steps",
+              "type": "array"
+            },
+            "unknown_types": {
+              "description": "Step types with no schema on record",
+              "items": {
+                "type": "string"
+              },
+              "title": "Unknown Types",
+              "type": "array"
+            },
+            "dangling_links": {
+              "description": "Links pointing at a step that no longer exists",
+              "items": {
+                "type": "string"
+              },
+              "title": "Dangling Links",
+              "type": "array"
+            },
+            "unconnected_branches": {
+              "description": "Advisory only: outcomes defined on a branching step but wired to nothing, e.g. an if/else whose FALSE path goes nowhere or a task outcome with no next step. Never connect or remove them without an explicit user request.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Unconnected Branches",
+              "type": "array"
+            },
+            "invalid_branch_links": {
+              "description": "Outcome mappings whose linkID does not exist or leaves another step",
+              "items": {
+                "type": "string"
+              },
+              "title": "Invalid Branch Links",
+              "type": "array"
+            },
+            "unlabelled_branching_steps": {
+              "description": "Outgoing links from branching steps that are not mapped from any outcome",
+              "items": {
+                "type": "string"
+              },
+              "title": "Unlabelled Branching Steps",
+              "type": "array"
+            }
+          },
+          "title": "WorkflowHealth",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
+        },
+        "workflow_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Url"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "publish_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publish Status"
+        },
+        "revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live snapshot token to pass as expected_revision_id before a mutation.",
+          "title": "Revision Id"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "connections": {
+          "items": {
+            "$ref": "#/$defs/Connection"
+          },
+          "title": "Connections",
+          "type": "array"
+        },
+        "step_states": {
+          "description": "Generic exact-match state summary for all known workflow steps. Use this before claiming an externally edited step already satisfies a request.",
+          "items": {
+            "$ref": "#/$defs/StepStateSummary"
+          },
+          "title": "Step States",
+          "type": "array"
+        },
+        "email_steps": {
+          "description": "Compact exact-match summary for email steps: recipients, subject, whether body content exists, missing fields, and incoming branch path.",
+          "items": {
+            "$ref": "#/$defs/EmailStepSummary"
+          },
+          "title": "Email Steps",
+          "type": "array"
+        },
+        "trigger_form_fields": {
+          "description": "Fields/questions from the trigger form, included so callers do not need a separate field-inspection call after get_workflow.",
+          "items": {
+            "$ref": "#/$defs/FormField"
+          },
+          "title": "Trigger Form Fields",
+          "type": "array"
+        },
+        "health": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkflowHealth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Internal diagnostics excluded from normal model-facing reads."
+        },
+        "diagnostics": {
+          "additionalProperties": true,
+          "description": "Internal notes excluded from normal model-facing reads.",
+          "title": "Diagnostics",
+          "type": "object"
+        },
+        "warnings": {
+          "description": "Read degradations that must not be interpreted as absent workflow data.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "WorkflowDetail",
+      "type": "object"
     }
   },
   {
     "name": "get_step_details",
-    "description": "Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.",
+    "description": "\n        Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -116,11 +1497,71 @@
       ],
       "title": "get_step_detailsArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "step_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Id"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        },
+        "sign_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sign Url"
+        },
+        "config": {
+          "additionalProperties": true,
+          "description": "Full step configuration",
+          "title": "Config",
+          "type": "object"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "StepDetail",
+      "type": "object"
     }
   },
   {
     "name": "list_workflow_revisions",
-    "description": "List saved workflow revisions for this MCP server session/history.\n\n        Revisions are full snapshots captured automatically before mutating\n        tools write to Jotform. Use restore_workflow_revision to preview and\n        restore one of them.",
+    "description": "\n        List saved workflow revisions for this MCP server session/history.\n\n        Revisions are full snapshots captured automatically before mutating\n        tools write to Jotform. Use restore_workflow_revision to preview and\n        restore one of them.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -140,30 +1581,352 @@
       ],
       "title": "list_workflow_revisionsArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "WorkflowRevisionSummary": {
+          "properties": {
+            "revision_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Revision Id"
+            },
+            "timestamp": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Timestamp"
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Session Id"
+            },
+            "workflow_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Workflow Id"
+            },
+            "workflow_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Workflow Url"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Reason"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "step_count": {
+              "default": 0,
+              "title": "Step Count",
+              "type": "integer"
+            },
+            "link_count": {
+              "default": 0,
+              "title": "Link Count",
+              "type": "integer"
+            },
+            "remote_revision_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Remote Revision Id"
+            },
+            "remote_updated_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Remote Updated At"
+            }
+          },
+          "title": "WorkflowRevisionSummary",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
+        },
+        "workflow_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Url"
+        },
+        "revisions": {
+          "items": {
+            "$ref": "#/$defs/WorkflowRevisionSummary"
+          },
+          "title": "Revisions",
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "WorkflowRevisionList",
+      "type": "object"
     }
   },
   {
     "name": "list_forms",
-    "description": "List the user's forms, with each form's id, title, status and\n        submission count.\n\n        A workflow is triggered by one of these, so this is usually the first\n        call when working out which form a workflow is about.",
+    "description": "\n        List one page of the user's forms, with each form's id, title, status and\n        submission count.\n\n        Use this when the user wants to browse forms or explicitly wants to\n        build a workflow from an existing form. For new AI-generated workflow\n        drafts, use search_workflow_templates first, then create_form_with_ai\n        when a form is needed.\n        ",
     "input_schema": {
-      "properties": {},
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "Page size, 1-100. Default 50.",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Zero-based page offset. Default 0.",
+          "title": "Offset",
+          "type": "integer"
+        },
+        "status": {
+          "default": "",
+          "description": "Optional exact form status filter.",
+          "title": "Status",
+          "type": "string"
+        }
+      },
       "title": "list_formsArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "FormSummary": {
+          "properties": {
+            "form_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Form Id"
+            },
+            "form_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Form Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Status"
+            },
+            "submission_count": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Submission Count"
+            }
+          },
+          "title": "FormSummary",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "forms": {
+          "items": {
+            "$ref": "#/$defs/FormSummary"
+          },
+          "title": "Forms",
+          "type": "array"
+        },
+        "limit": {
+          "default": 50,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "count": {
+          "default": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "has_more": {
+          "default": false,
+          "title": "Has More",
+          "type": "boolean"
+        },
+        "next_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Offset"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "FormList",
       "type": "object"
     }
   },
   {
     "name": "search_workflow_templates",
-    "description": "Search and inspect the Jotform workflow template catalog using local FAISS RAG vector similarity.\n\n        SAFE DRAFT NOTE: Templates provide blueprints with placeholder emails. All workflows in this system are built in safe draft mode. Never refuse or halt workflow building over placeholder emails; build the workflow first and invite customization afterward.\n\n        Use this tool whenever the user asks for workflow ideas, inspiration, or template\n        recommendations, or when asked to design/create a new workflow for any domain\n        (e.g., leave request, approvals, onboarding, expense, feedback) to discover proven\n        architectures and step patterns. Returns the top matching template blueprints directly;\n        do not call a separate template-detail tool afterward.",
+    "description": "\n        Always search the local template catalog first for a close blueprint when building a new workflow.\n\n        Use a concise English query. A result includes compact graph structure and\n        inferred suggested_form_fields. Treat low/no matches as no template and continue;\n        never force an unrelated blueprint onto the user's request.\n        ",
     "input_schema": {
       "properties": {
         "query": {
-          "description": "Natural language query describing the desired workflow idea, domain, or process (e.g. 'employee vacation approval flow', 'purchase order approval with signature').",
+          "description": "A concise English query describing the desired workflow idea, domain, or process. Translate the user's request to English before calling this tool (e.g. 'employee vacation approval flow', 'purchase order approval with signature').",
           "title": "Query",
           "type": "string"
         },
         "top_k": {
-          "default": 2,
-          "description": "Number of relevant template blueprints to return (default 2, max 3)",
+          "default": 1,
+          "description": "Number of relevant template blueprints to return (default 1, max 3; use 2 only if ambiguous)",
           "title": "Top K",
           "type": "integer"
         }
@@ -173,15 +1936,130 @@
       ],
       "title": "search_workflow_templatesArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "TemplateItem": {
+          "properties": {
+            "id": {
+              "description": "Template ID",
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "description": "Template title",
+              "title": "Title",
+              "type": "string"
+            },
+            "clone_count": {
+              "default": 0,
+              "description": "Usage count",
+              "title": "Clone Count",
+              "type": "integer"
+            },
+            "steps_summary": {
+              "description": "Step types and names included in the template",
+              "items": {
+                "type": "string"
+              },
+              "title": "Steps Summary",
+              "type": "array"
+            },
+            "score": {
+              "description": "Relevance score (cosine similarity)",
+              "title": "Score",
+              "type": "number"
+            },
+            "elements_count": {
+              "default": 0,
+              "description": "Total number of workflow elements/steps",
+              "title": "Elements Count",
+              "type": "integer"
+            },
+            "links_count": {
+              "default": 0,
+              "description": "Total number of edge connections between steps",
+              "title": "Links Count",
+              "type": "integer"
+            },
+            "suggested_form_fields": {
+              "description": "Field labels inferred from the template configuration; suggestions, not an authoritative schema.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Suggested Form Fields",
+              "type": "array"
+            },
+            "elements": {
+              "description": "Template element blueprint details for workflow design inspiration.",
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Elements",
+              "type": "array"
+            },
+            "links": {
+              "description": "Template link blueprint details for workflow design inspiration.",
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Links",
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "score"
+          ],
+          "title": "TemplateItem",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "query": {
+          "description": "The search query submitted",
+          "title": "Query",
+          "type": "string"
+        },
+        "normalized_query": {
+          "description": "English query used for embedding and reranking",
+          "title": "Normalized Query",
+          "type": "string"
+        },
+        "count": {
+          "description": "Number of matching templates returned",
+          "title": "Count",
+          "type": "integer"
+        },
+        "templates": {
+          "description": "Top-k matching templates",
+          "items": {
+            "$ref": "#/$defs/TemplateItem"
+          },
+          "title": "Templates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "query",
+        "normalized_query",
+        "count",
+        "templates"
+      ],
+      "title": "TemplateSearchResult",
+      "type": "object"
     }
   },
   {
     "name": "create_form_with_ai",
-    "description": "Create a new Jotform form from an AI prompt.\n\n        Use this only after the user chooses \"create a new form\" for a\n        workflow trigger and describes what the form should collect.",
+    "description": "\n        Create a new Jotform form from an AI prompt.\n\n        Call this only after search_workflow_templates when building a new\n        workflow that needs an AI-generated form. This is the first write, not\n        the first tool call. For form-submission workflows, the form becomes\n        trigger_form_id. For scheduled workflows, the form is assigned after the\n        schedule starts with workflow_assign_form.formID. Do not use external\n        Jotform form plugins/tools for workflow requests; they do not return\n        this server's field contract or stay inside the workflow audit/build\n        chain. It returns form_id plus the exact field_id, name, label, type,\n        required, and options values for the subsequent build_workflow_bulk call. Use\n        field name values inside email subject/content variables and recipient\n        field references. No\n        separate form-field lookup is needed. This form-only result is not\n        complete when the user requested a workflow; if template search has not\n        already happened, call search_workflow_templates before build_workflow_bulk.\n        ",
     "input_schema": {
       "properties": {
         "prompt": {
-          "description": "Natural-language description of the form to create. Ask the user what fields, labels, language, and purpose they want before calling this. The created form can be passed to create_workflow as trigger_form_id.",
+          "description": "Call this only after search_workflow_templates when building a new workflow that needs an AI-generated form: a trigger form for form-submission workflows, or an assigned form for scheduled workflows. This is the first write, not the first tool call. Use this MCP workflow tool for that write. Do not use external Jotform form plugins/tools for workflow requests; they do not return this server's field contract. Describe the form's purpose, language, and only the essential intake fields (maximum 8). Omit workflow steps, routing, notifications, styling, and long explanations. The result includes form_id and exact fields, including field names for email variables, for the subsequent build_workflow_bulk call. For scheduled workflows, use the returned form_id as workflow_assign_form.formID, not trigger_form_id.",
           "title": "Prompt",
           "type": "string"
         },
@@ -195,6 +2073,12 @@
           "default": "en",
           "description": "Form language preference. Default \"en\"; use \"tr\" when the user wants Turkish.",
           "title": "Language",
+          "type": "string"
+        },
+        "operation_id": {
+          "default": "",
+          "description": "Stable unique ID for this form-creation intent. Reuse the same value when retrying the same request so a timeout or model retry cannot create another form.",
+          "title": "Operation Id",
           "type": "string"
         },
         "intent": {
@@ -215,11 +2099,241 @@
       ],
       "title": "create_form_with_aiArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "$defs": {
+        "FormField": {
+          "properties": {
+            "field_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact Jotform question ID used in workflow field references.",
+              "title": "Field Id"
+            },
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact Jotform unique question name used inside dynamic variables, for example {q3_email1}. Prefer this over guessing camelCase labels.",
+              "title": "Name"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact visible form-field label.",
+              "title": "Label"
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact Jotform question/control type.",
+              "title": "Type"
+            },
+            "required": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Whether the form field is required, as returned by Jotform.",
+              "title": "Required"
+            },
+            "options": {
+              "description": "Exact allowed option texts for dropdown/radio/choice fields",
+              "items": {
+                "type": "string"
+              },
+              "title": "Options",
+              "type": "array"
+            }
+          },
+          "title": "FormField",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "form_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "New form ID from this MCP workflow tool. For form-submission workflows, pass it to build_workflow_bulk as trigger_form_id. For scheduled workflows that assign a form after the schedule starts, pass it as workflow_assign_form.formID. Do not substitute an external Jotform form plugin result for workflow creation.",
+          "title": "Form Id"
+        },
+        "form_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Jotform builder URL for the new form.",
+          "title": "Form Url"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Generated form title.",
+          "title": "Title"
+        },
+        "generation_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "copilot",
+                "fallback"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether Copilot or the public API fallback created the form.",
+          "title": "Generation Mode"
+        },
+        "fallback_used": {
+          "default": false,
+          "description": "True when Copilot was unavailable and a simpler fallback form was created.",
+          "title": "Fallback Used",
+          "type": "boolean"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why fallback generation was used.",
+          "title": "Fallback Reason"
+        },
+        "verified": {
+          "default": false,
+          "description": "True when the created form fields were read back from Jotform.",
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "AI form-generation summary. This does not complete a workflow request; continue with build_workflow_bulk when the user asked for a workflow.",
+          "title": "Summary"
+        },
+        "fields": {
+          "description": "Complete normalized field contract for the next build_workflow_bulk call: field_id, name, label, type, required, and options. Use name inside email/task dynamic variables. External Jotform form plugins do not provide this workflow-ready contract.",
+          "items": {
+            "$ref": "#/$defs/FormField"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "next_required_tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Usually build_workflow_bulk. Continue the requested workflow instead of asking the user what to do.",
+          "title": "Next Required Tool"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Concrete next-step guidance for completing the workflow after form creation.",
+          "title": "Hint"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "CreateAIFormResult",
+      "type": "object"
     }
   },
   {
     "name": "build_workflow_bulk",
-    "description": "Primary tool for building workflows in one bulk operation.\n\n        SAFE DRAFT MODE & ROLE-BASED EMAILS RULE:\n        All workflows created here are saved in unpublished draft mode on Jotform Cloud and DO NOT send live emails or leak data during creation.\n        It is safe and MANDATORY to use role-based draft placeholders (e.g. 'advisor@university.edu', 'student@university.edu', 'manager@company.com', 'operations@company.com', or form field references like '{Email Address}') for any scenario (academic, HR, finance, order, etc.).\n        NEVER halt, refuse, or ask confirmation from the user beforehand; immediately populate sensible draft placeholders and standard outcomes, execute build_workflow_bulk in one shot, and offer the user to customize the emails/fields after presenting the workflow.\n\n        Use this tool for:\n        - Creating a new workflow from scratch by passing title/form_prompt or title/trigger_form_id.\n        - Adding a complete graph of steps and connections to an existing workflow_id.\n        - Deleting existing obsolete steps atomically via delete_step_ids (e.g. delete_step_ids=['8', '9']).\n        - Combining step deletion, creation, and rewiring in one atomic call.\n\n        If the user asks for a new workflow and does not provide an existing form ID,\n        pass form_prompt here. Do not create the trigger form with any separate\n        Jotform Form plugin/tool, and do not stop after creating only a form.\n\n        This is the model-facing workflow creation path; standalone workflow\n        creation helpers are hidden and only used as internal fallback pieces.\n        Do not use form_prompt as a standalone form creation step; include steps and connections in the same call.\n        All step references ('ref') in steps can be wired using 'from_ref' and 'to_ref' in connections.\n        Use 'start' or '1' as from_ref to connect from the trigger form. When updating an existing workflow,\n        existing step IDs from get_workflow can also be used in from_ref/to_ref.\n\n        Common step type IDs: workflow_send_email, workflow_assign_task, workflow_approval,\n        workflow_binary_decision, workflow_conditional_branch, workflow_end_point. These cover most\n        first drafts; only use rarer step types when the user explicitly requests that capability.\n\n        Compact graph rule: for high-level create requests, build a clean, focused baseline of roughly 3-5 workflow\n        steps after the trigger (e.g. trigger -> approval/task -> success/failure emails). Do not expand every possible\n        department or exception into a node, and do not add artificial end nodes when leaf email/task steps conclude paths.\n        Use 6+ steps only when the user asks for a detailed end-to-end, comprehensive, advanced, or multi-department workflow.\n\n        Compact config examples:\n        - approval: {\"name\":\"Manager Approval\",\"approver\":\"manager@draft.internal\",\"taskDescription\":\"Review this request.\"}\n        - task: {\"name\":\"Finance Review\",\"assignee\":\"finance@draft.internal\",\"taskDescription\":\"Check the details.\",\"outcomes\":[\"Complete\"]}\n        - email: {\"name\":\"Approved Email\",\"to\":\"{Email Address}\",\"subject\":\"Approved\",\"content\":\"<p>Your request was approved.</p>\"}\n        - if/else: {\"name\":\"Amount over limit?\",\"conditionTerms\":[{\"field\":\"Amount\",\"operator\":\"greaterThan\",\"value\":\"1000\"}]}\n          Use workflow_binary_decision for one TRUE/FALSE condition. Use workflow_conditional_branch only\n          for 3+ named branches with outcomes:[{\"text\":\"High\",\"conditionTerms\":[...]}].\n\n        Self-healing behavior: recipient_email/recipients/body/message are accepted aliases for to/content;\n        approver_email/approvers become approver; assignee_email/assignees/description/task_details become\n        assignee/taskDescription. Missing approval/task/email essentials are auto-filled with safe draft\n        defaults and returned in warnings instead of failing the tool call. If a new workflow is called with\n        form_prompt or trigger_form_id but no steps, this tool creates a standard approval draft.\n\n        One-write rule: call this tool once for the intended create/update graph. If the result has warnings\n        but no error, treat the build as successful; do not call it again merely to clean safe defaults,\n        aliases, or dropped non-essential fields. If the first call errors on a common approval/task/email\n        field, retry at most once with that specific field fixed.",
+    "description": "\n        Create or mutate a workflow graph with one final updateTree write.\n\n        New form-submission flow: search_workflow_templates -> create_form_with_ai -> build_workflow_bulk -> show_workflow.\n        New scheduled flow: search_workflow_templates -> build_workflow_bulk(trigger_type=\"schedule\", trigger_schedule=...) -> show_workflow.\n        New scheduled assigned-form flow: search_workflow_templates -> create_form_with_ai -> build_workflow_bulk(trigger_type=\"schedule\", trigger_schedule=..., workflow_assign_form.formID=...) -> show_workflow.\n        Do not use external Jotform form plugins/tools for the AI trigger form.\n        Existing workflow flow: get_workflow -> build_workflow_bulk -> show_workflow.\n        Use step_updates for existing configuration edits and steps for new nodes.\n        If the user asks to add a 3rd-party integration (Slack, WhatsApp,\n        Zendesk, Asana, Google Sheets, Microsoft Teams, etc.), you MUST add it\n        as a blank shell step: set type=\"workflow_integration\", set StepSpec\n        subType to the specific supported integration ID, and DO NOT fill any\n        authentication, OAuth, account, mapping, channel, project, ticket, or\n        message configuration fields. The user completes settings in Jotform UI.\n        Missing content/subject/body/outcome config is an error; the server validates\n        but does not invent email content or fallback graph nodes for you. Draft\n        reasonable content from the user's request and template blueprint. For new draft workflows,\n        missing staff approvers/assignees are filled with reserved role placeholders\n        such as hr@workflow.invalid or manager@workflow.invalid. Do not ask the user\n        solely for draft staff emails. Alias normalization is limited to equivalent\n        field names. Deletes that would orphan downstream nodes return a preview and\n        require explicit confirmation. Every bulk write leaves the workflow\n        DISABLED, including edits to an existing workflow; publish_workflow is\n        only for a later explicit user request to enable it.\n\n        For common workflows, do not call list_step_types or get_step_schema first.\n        Use these known configs directly:\n        approval: type=workflow_approval, config has name, approver=hr@workflow.invalid if unknown, taskDescription.\n        task: type=workflow_assign_task, config has name, assignee=manager@workflow.invalid if unknown, taskDescription, outcomes=[\"Complete\"].\n        assign form: type=workflow_assign_form, config has name, formID, assignee, requireLogin=\"Yes\".\n        Use assign form to add a form after a scheduled start; do not bind that form as trigger_form_id.\n        integration shell: type=workflow_integration, subType is one of the supported IDs; config is empty or name only.\n        email: type=workflow_send_email, config has name, to, subject, content. Use a trigger-form email field for applicant/customer notifications.\n        binary branch: type=workflow_binary_decision with conditionTerms and TRUE/FALSE connections.\n        Choose the number of steps from the user's domain and detail level; do not follow a fixed\n        count. Include intake/receipt notification, review/approval/task paths, parallel work,\n        escalation, and outcome notifications only when they are useful.\n        ",
     "input_schema": {
       "$defs": {
         "ConnectionSpec": {
@@ -256,13 +2370,70 @@
               "type": "string"
             },
             "type": {
-              "description": "From list_step_types, e.g. \"workflow_approval\", \"workflow_send_email\".",
+              "description": "From list_step_types, e.g. \"workflow_approval\", \"workflow_send_email\". If the user asks to add a 3rd-party integration such as Slack, WhatsApp, Zendesk, Asana, Google Sheets, or Microsoft Teams, set type to \"workflow_integration\" and create a blank shell step only.",
               "title": "Type",
               "type": "string"
             },
+            "subType": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "activecampaign",
+                    "airtable",
+                    "asana",
+                    "aweber",
+                    "box",
+                    "brevo",
+                    "campaign-monitor",
+                    "canvas-lms",
+                    "clickup",
+                    "constantContactV2",
+                    "dropbox",
+                    "egnyte",
+                    "freshdesk",
+                    "getresponse",
+                    "gohighlevel",
+                    "google-calendar",
+                    "google-drive",
+                    "google-sheetsV2",
+                    "hubspot",
+                    "jira",
+                    "jotform-boards",
+                    "linear",
+                    "mailchimp",
+                    "mailerlite",
+                    "mailsoftly",
+                    "microsoft-excel",
+                    "microsoft-sharepoint",
+                    "microsoft-teams",
+                    "monday",
+                    "onedrive",
+                    "outlook-calendar",
+                    "pipedrive",
+                    "quickbooks",
+                    "sendgrid",
+                    "slack",
+                    "smartsheet",
+                    "sms",
+                    "todoist",
+                    "whatsapp",
+                    "whatsapp-business",
+                    "zendesk",
+                    "zoom"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Required when type is workflow_integration. Must be one of the supported integration IDs, for example slack, whatsapp, whatsapp-business, zendesk, asana, google-sheetsV2, microsoft-teams. For 3rd-party integrations, add only a blank shell step: set type to workflow_integration, set this subType, and do NOT fill any authentication, account, mapping, OAuth, trigger, channel, project, workspace, ticket, or message configuration fields. The user will click '+ Complete Settings' in the Jotform UI.",
+              "title": "Subtype"
+            },
             "config": {
               "additionalProperties": true,
-              "description": "Fields for this step type — check get_step_schema. Always provide full draft config with realistic role-based draft emails (e.g. 'advisor@university.edu', 'manager@company.com', '{Email Address}'). For condition terms in build_workflow_bulk, prefer the trigger form's visible field label. Known field_id/qid/name values are also accepted; the bulk tool resolves them after creating/reading the trigger form and refuses ambiguous labels instead of guessing.",
+              "description": "Fields for this step type. For common approval/task/email/branch steps, use the documented compact configs directly. Draft staff recipients should use reserved role placeholders such as 'hr@workflow.invalid' or 'manager@workflow.invalid' when no real address is provided; applicant/customer notifications should use the exact trigger form email field variable tag. CRITICAL WARNING for dynamic variables (e.g. in email content or approval tasks): NEVER use the question title/label wrapped in braces like '{Employee Name}'. ALWAYS use the exact 'name' property (unique name) from the fields/questions list returned by create_form_with_ai or get_workflow, like '{employeeName}'. When summarizing email content back to the user, refer to those dynamic fields by their visible labels instead of exposing raw Jotform tags such as '{q2_textbox0}'. For condition terms in build_workflow_bulk, prefer the trigger form's visible field label. Known field_id/qid/name values are also accepted; the bulk tool resolves them after creating/reading the trigger form and refuses ambiguous labels instead of guessing. For workflow_integration steps, leave config empty or provide only a display name; put the integration ID in subType and never include auth/config fields.",
               "title": "Config",
               "type": "object"
             }
@@ -273,12 +2444,32 @@
           ],
           "title": "StepSpec",
           "type": "object"
+        },
+        "StepUpdateSpec": {
+          "properties": {
+            "step_id": {
+              "description": "Existing numeric step_id from a fresh get_workflow result.",
+              "title": "Step Id",
+              "type": "string"
+            },
+            "config": {
+              "additionalProperties": true,
+              "description": "Fields to merge into the existing step configuration.",
+              "title": "Config",
+              "type": "object"
+            }
+          },
+          "required": [
+            "step_id"
+          ],
+          "title": "StepUpdateSpec",
+          "type": "object"
         }
       },
       "properties": {
         "workflow_id": {
           "default": "",
-          "description": "Optional. ID of an existing workflow to update or add/delete steps. If omitted, a new workflow is created automatically using title/form_prompt.",
+          "description": "Optional. ID of an existing workflow to update or add/delete steps. If omitted, a new workflow is created automatically using title plus either trigger_form_id for form-submission workflows or trigger_type='schedule' with trigger_schedule for scheduled workflows.",
           "title": "Workflow Id",
           "type": "string"
         },
@@ -300,6 +2491,15 @@
           "title": "Connections",
           "type": "array"
         },
+        "step_updates": {
+          "default": [],
+          "description": "Existing step configuration edits to apply in the same updateTree write. Each item needs numeric step_id from get_workflow and a config dict.",
+          "items": {
+            "$ref": "#/$defs/StepUpdateSpec"
+          },
+          "title": "Step Updates",
+          "type": "array"
+        },
         "delete_step_ids": {
           "default": [],
           "description": "Optional list of existing step IDs to delete from this workflow (e.g. ['8', '9']). All incident links touching these steps are deleted automatically, and any parent branch outcomes are cleaned up or rewired.",
@@ -307,6 +2507,15 @@
             "type": "string"
           },
           "title": "Delete Step Ids",
+          "type": "array"
+        },
+        "delete_link_ids": {
+          "default": [],
+          "description": "Optional existing connection IDs to remove in the same updateTree write. Primarily used by semantic Canvas diffs and connection rewires.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Delete Link Ids",
           "type": "array"
         },
         "title": {
@@ -317,20 +2526,52 @@
         },
         "trigger_form_id": {
           "default": "",
-          "description": "Optional. Existing form ID to bind as trigger form when creating a new workflow. Use only when the user explicitly provides an existing form ID or asks to use an existing form; otherwise use form_prompt so this Workflow MCP creates the trigger form.",
+          "description": "Primary trigger binding for a new form-submission workflow. Pass the form_id obtained from this MCP server's create_form_with_ai, or an existing form ID explicitly selected by the user, along with the complete steps and connections. Leave blank for scheduled workflows; assigned forms belong in workflow_assign_form step config as formID. Do not source this from an external Jotform AI form plugin during workflow creation.",
           "title": "Trigger Form Id",
           "type": "string"
         },
-        "form_prompt": {
-          "default": "",
-          "description": "Optional. Natural language description to automatically generate an AI trigger form for this workflow. Use this for new trigger forms instead of any separate Jotform Form plugin/tool. Include the expected form purpose and fields. Use only in the same build_workflow_bulk call that includes the complete steps and connections; do not call this tool with form_prompt only or empty steps.",
-          "title": "Form Prompt",
+        "confirm_orphaned_downstream": {
+          "default": false,
+          "description": "Set true only after the user explicitly confirms that downstream child steps may be left disconnected/unreachable by this delete.",
+          "title": "Confirm Orphaned Downstream",
+          "type": "boolean"
+        },
+        "trigger_type": {
+          "default": "form",
+          "description": "Type of the trigger. Default is 'form'. Set to 'schedule' for scheduled workflows.",
+          "title": "Trigger Type",
           "type": "string"
         },
-        "form_language": {
-          "default": "en",
-          "description": "Form language for AI trigger form generation. Use \"tr\" for Turkish, otherwise \"en\".",
-          "title": "Form Language",
+        "trigger_schedule": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required if trigger_type is 'schedule'. The server automatically handles timezone resolution (by fetching the user's Jotform profile timezone) and UTC date math. To schedule for a specific day/time (e.g., 'every Friday at 17:00'), simply provide `schedule__days` (e.g. 'Friday'), `schedule__time` (e.g. '17:00'), and the interval config (`schedule__executeWhen__afterAmount`='1', `schedule__executeWhen__afterUnit`='week', `schedule__end__recurring`='none'). Do NOT stop to ask the user for their timezone. Submit the schedule to the tool first; the server will fetch it from Jotform. Only ask the user for a timezone if this tool returns a validation error explicitly complaining about a missing timezone.",
+          "title": "Trigger Schedule"
+        },
+        "expected_revision_id": {
+          "default": "",
+          "description": "Optimistic-lock token from get_workflow.revision_id or show_workflow.data.revision_id when mutating an existing workflow. Prefer passing it. If omitted, this tool reads a fresh live snapshot and guards the final write with that snapshot.",
+          "title": "Expected Revision Id",
+          "type": "string"
+        },
+        "base_updated_at": {
+          "default": "",
+          "description": "Optional get_workflow.updated_at fallback for timestamp-based clients.",
+          "title": "Base Updated At",
+          "type": "string"
+        },
+        "operation_id": {
+          "default": "",
+          "description": "Stable unique ID for this workflow mutation intent. Reuse it for retries of the same request; completed or partially-created operations are replayed instead of duplicated.",
+          "title": "Operation Id",
           "type": "string"
         },
         "intent": {
@@ -348,59 +2589,281 @@
       },
       "title": "build_workflow_bulkArguments",
       "type": "object"
-    }
-  },
-  {
-    "name": "delete_step",
-    "description": "Delete a step from a workflow. Irreversible.\n\n        First call (confirm=false) changes nothing and returns the step's\n        type, label, and every connection that would break. Second call\n        (confirm=true) actually deletes it.\n\n        Confirmed (probes/test_delete_impact.py, 2026-08-10): Jotform does\n        NOT remove a step's connections when the step is deleted — this\n        tool deletes them explicitly, in the same request, so no broken\n        links are left behind.",
-    "input_schema": {
+    },
+    "output_schema": {
       "properties": {
         "workflow_id": {
-          "description": "From list_workflows.",
-          "title": "Workflow Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
         },
-        "step_id": {
-          "description": "From get_workflow's steps list.",
-          "title": "Step Id",
-          "type": "string"
+        "workflow_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Url"
         },
-        "confirm": {
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live workflow status. Every build_workflow_bulk write leaves the workflow DISABLED.",
+          "title": "Status"
+        },
+        "trigger_form_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trigger Form Id"
+        },
+        "trigger_form_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trigger Form Url"
+        },
+        "created_steps": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Mapping from step ref to created Jotform step_id",
+          "title": "Created Steps",
+          "type": "object"
+        },
+        "assigned_forms": {
+          "description": "Forms assigned by workflow_assign_form steps. Include these form_url links in the final answer, especially for scheduled workflows where the form is not the trigger_form_id.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Assigned Forms",
+          "type": "array"
+        },
+        "updated_steps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Updated Steps",
+          "type": "array"
+        },
+        "deleted_steps": {
+          "description": "List of step IDs that were deleted in this bulk update",
+          "items": {
+            "type": "string"
+          },
+          "title": "Deleted Steps",
+          "type": "array"
+        },
+        "deleted_links": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Deleted Links",
+          "type": "array"
+        },
+        "needs_confirmation": {
           "default": false,
-          "description": "Leave false to preview what deleting this step would affect. Only pass true after showing that preview to the user and getting their explicit go-ahead — never set this based on your own judgement that it's probably fine.",
-          "title": "Confirm",
+          "description": "True when a requested destructive update was previewed but not applied because it needs an explicit user choice.",
+          "title": "Needs Confirmation",
           "type": "boolean"
         },
-        "intent": {
-          "default": "",
-          "description": "Optional short, privacy-conscious summary of the user's intent for audit/debug logs. Do not copy the full user message; keep one phrase.",
-          "title": "Intent",
-          "type": "string"
+        "orphaned_step_ids": {
+          "description": "Downstream step IDs that would become unreachable if the delete is applied.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Orphaned Step Ids",
+          "type": "array"
         },
-        "reason": {
-          "default": "",
-          "description": "Optional short explanation of why this tool call is the right next step. Used for audit/debug logs and revision history.",
-          "title": "Reason",
-          "type": "string"
+        "orphaned_steps": {
+          "description": "Labels/types for downstream steps that would become unreachable.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Orphaned Steps",
+          "type": "array"
+        },
+        "delete_impacts": {
+          "description": "Topology preview for requested step deletes: incoming parents, outgoing children, reconnect candidates, and suggested user choices.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Delete Impacts",
+          "type": "array"
+        },
+        "created_links_count": {
+          "default": 0,
+          "title": "Created Links Count",
+          "type": "integer"
+        },
+        "verified": {
+          "default": false,
+          "description": "True after the persisted workflow graph passes read-back verification.",
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision Id"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "conflict": {
+          "default": false,
+          "title": "Conflict",
+          "type": "boolean"
+        },
+        "current_revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Revision Id"
+        },
+        "current_updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Updated At"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "next_required_tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "show_workflow",
+          "description": "Call show_workflow immediately after this tool to present the visual canvas to the user.",
+          "title": "Next Required Tool"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
         }
       },
-      "required": [
-        "workflow_id",
-        "step_id"
-      ],
-      "title": "delete_stepArguments",
+      "title": "BuildWorkflowBulkResult",
       "type": "object"
     }
   },
   {
     "name": "publish_workflow",
-    "description": "Publish a workflow, making it live — from this point on, matching\n        form submissions actually run it.\n\n        This runs the same health check as get_workflow — unreachable steps,\n        dead ends, unlabelled branches — records warnings in the result, saves\n        a revision, then publishes immediately.",
+    "description": "\n        Enable a disabled workflow, making it live — from this point on,\n        matching form submissions can run it.\n\n        Do not use this as the normal final step after creating or editing a\n        workflow. First call show_workflow and answer with the workflow/form\n        links. Use publish_workflow only when the user explicitly asks to\n        enable or publish. The first call with confirm=false only previews the\n        status change and any advisory health warnings. Call again with\n        confirm=true only after the user explicitly agrees. Draft recipient\n        placeholders are warned; enabling with them requires the user to accept\n        the warning and allow_draft_recipients=true. Workflows are intentionally\n        left DISABLED after every build_workflow_bulk write.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
-          "description": "From list_workflows.",
+          "description": "Workflow ID to enable. Do not call this immediately after build_workflow_bulk. First call show_workflow and answer with the workflow/form links; call publish_workflow only if the user explicitly asks to enable or publish.",
           "title": "Workflow Id",
           "type": "string"
+        },
+        "confirm": {
+          "default": false,
+          "description": "Leave false for the enable preview, but only call even the preview after the user explicitly asks to enable/publish. Set true only after the user explicitly confirms that this disabled workflow should start running.",
+          "title": "Confirm",
+          "type": "boolean"
+        },
+        "expected_revision_id": {
+          "default": "",
+          "description": "Required with confirm=true. Echo revision_id from the immediately preceding confirm=false preview so a changed workflow cannot be enabled accidentally.",
+          "title": "Expected Revision Id",
+          "type": "string"
+        },
+        "allow_draft_recipients": {
+          "default": false,
+          "description": "Default false. Set true only if the user explicitly accepts enabling with .invalid/.internal draft recipient placeholders after seeing the warnings. This can route workflow notifications to placeholder addresses.",
+          "title": "Allow Draft Recipients",
+          "type": "boolean"
         },
         "intent": {
           "default": "",
@@ -420,11 +2883,113 @@
       ],
       "title": "publish_workflowArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
+        },
+        "workflow_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Url"
+        },
+        "current_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Status"
+        },
+        "target_status": {
+          "default": "ENABLED",
+          "title": "Target Status",
+          "type": "string"
+        },
+        "revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live revision that must be echoed as expected_revision_id when confirming.",
+          "title": "Revision Id"
+        },
+        "needs_confirmation": {
+          "default": false,
+          "title": "Needs Confirmation",
+          "type": "boolean"
+        },
+        "health_warnings": {
+          "description": "Structural problems in the workflow as it stands — reported alongside the publish result",
+          "items": {
+            "type": "string"
+          },
+          "title": "Health Warnings",
+          "type": "array"
+        },
+        "published": {
+          "default": false,
+          "title": "Published",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        }
+      },
+      "title": "PublishWorkflowResult",
+      "type": "object"
     }
   },
   {
     "name": "restore_workflow_revision",
-    "description": "Restore a workflow to a saved revision.\n\n        Revisions are captured automatically before add/update/connect/\n        disconnect/delete/publish operations. Without revision_id, this uses\n        the newest saved revision, so it is the \"go back one change\" tool.",
+    "description": "\n        Restore a workflow to a saved revision.\n\n        Revisions are captured automatically before add/update/connect/\n        disconnect/delete/publish operations. Without revision_id, this uses\n        the newest saved revision, so it is the \"go back one change\" tool.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -434,7 +2999,7 @@
         },
         "revision_id": {
           "default": "",
-          "description": "Optional. If empty, restores the newest saved revision for this workflow, usually the state immediately before the last mutating tool call.",
+          "description": "For preview, may be empty to select the newest saved revision. With confirm=true it is required and must exactly match the revision_id returned by that preview.",
           "title": "Revision Id",
           "type": "string"
         },
@@ -443,6 +3008,12 @@
           "description": "Leave false to preview the restore target. Only pass true after showing that preview to the user and getting explicit approval. The current workflow is backed up as a new revision before restore.",
           "title": "Confirm",
           "type": "boolean"
+        },
+        "expected_current_revision_id": {
+          "default": "",
+          "description": "Required with confirm=true. Echo current_revision_id from the restore preview so concurrent workflow edits cannot be overwritten.",
+          "title": "Expected Current Revision Id",
+          "type": "string"
         },
         "intent": {
           "default": "",
@@ -462,11 +3033,170 @@
       ],
       "title": "restore_workflow_revisionArguments",
       "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
+        },
+        "workflow_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Url"
+        },
+        "revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision Id"
+        },
+        "revision_timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision Timestamp"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "target_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Title"
+        },
+        "target_step_count": {
+          "default": 0,
+          "title": "Target Step Count",
+          "type": "integer"
+        },
+        "target_link_count": {
+          "default": 0,
+          "title": "Target Link Count",
+          "type": "integer"
+        },
+        "current_backup_revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Backup Revision Id"
+        },
+        "current_revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live workflow revision that the restore preview is bound to.",
+          "title": "Current Revision Id"
+        },
+        "needs_confirmation": {
+          "default": false,
+          "title": "Needs Confirmation",
+          "type": "boolean"
+        },
+        "restored": {
+          "default": false,
+          "title": "Restored",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        }
+      },
+      "title": "RestoreWorkflowRevisionResult",
+      "type": "object"
     }
   },
   {
     "name": "delete_workflow",
-    "description": "Delete an entire workflow. Irreversible, and bigger than delete_step\n        — this removes every step in it.\n\n        First call (confirm=false) changes nothing and returns the title\n        to show the user. Second call needs both confirm=true and\n        confirm_title matching exactly.",
+    "description": "\n        Delete an entire workflow. Irreversible, and bigger than delete_step\n        — this removes every step in it.\n\n        First call (confirm=false) changes nothing and returns the title\n        to show the user. Second call needs both confirm=true and\n        confirm_title matching exactly.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {
@@ -503,6 +3233,158 @@
         "workflow_id"
       ],
       "title": "delete_workflowArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "needs_confirmation": {
+          "default": false,
+          "title": "Needs Confirmation",
+          "type": "boolean"
+        },
+        "deleted": {
+          "default": false,
+          "title": "Deleted",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        }
+      },
+      "title": "DeleteWorkflowResult",
+      "type": "object"
+    }
+  },
+  {
+    "name": "record_feature_request",
+    "description": "\n        Record a genuine product gap after the workflow has been shown.\n\n        Call only after `show_workflow`, and only for a missing template or an\n        unsupported workflow capability. Do not record ordinary validation or\n        transient Jotform API failures as feature requests.\n        ",
+    "input_schema": {
+      "properties": {
+        "category": {
+          "description": "Use missing_template when no close workflow template exists; use unsupported_workflow_capability when the requested trigger, step, integration, or behavior is unavailable.",
+          "enum": [
+            "missing_template",
+            "unsupported_workflow_capability"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "request_summary": {
+          "description": "Short English summary without PII, credentials, or form answers.",
+          "title": "Request Summary",
+          "type": "string"
+        },
+        "workflow_id": {
+          "default": "",
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "workflow_url": {
+          "default": "",
+          "title": "Workflow Url",
+          "type": "string"
+        },
+        "top_template_id": {
+          "default": "",
+          "title": "Top Template Id",
+          "type": "string"
+        },
+        "top_template_title": {
+          "default": "",
+          "title": "Top Template Title",
+          "type": "string"
+        },
+        "top_template_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top Template Score"
+        },
+        "missing_capability": {
+          "default": "",
+          "title": "Missing Capability",
+          "type": "string"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "request_summary"
+      ],
+      "title": "record_feature_requestArguments",
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "recorded": {
+          "title": "Recorded",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recorded",
+        "reason"
+      ],
+      "title": "FeatureRequestResult",
       "type": "object"
     }
   }

@@ -5,7 +5,9 @@ from mcp_server import jotform_client
 from mcp_server.jotform_client import (
     JotformAPIError,
     JotformClient,
+    PartialWorkflowCreateError,
     flatten_element_properties,
+    simplify_ai_form_prompt,
     unflatten_element_properties,
 )
 
@@ -92,6 +94,70 @@ def test_invalid_json_response_becomes_tool_readable_error(monkeypatch):
     assert "Invalid JSON response" in str(exc.value)
 
 
+def test_create_workflow_forces_and_verifies_disabled_status(monkeypatch):
+    client = JotformClient(api_key="secret-key")
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs.get("json_body")))
+        if path == "/workflow":
+            assert kwargs["json_body"]["status"] == "DISABLED"
+            return {"content": {"id": "wf_1", "status": "ENABLED"}}
+        if path == "/workflow/wf_1":
+            assert kwargs["json_body"] == {"status": "DISABLED"}
+            return {"content": {"status": "DISABLED"}}
+        if path == "/workflow/wf_1/updateTree":
+            return {"content": {"result": {"elements": []}}}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    created = client.create_workflow("Safe draft")
+
+    assert created["id"] == "wf_1"
+    assert created["status"] == "DISABLED"
+    assert [call[:2] for call in calls] == [
+        ("POST", "/workflow"),
+        ("PUT", "/workflow/wf_1/updateTree"),
+            ("POST", "/workflow/wf_1"),
+    ]
+
+
+def test_create_workflow_reports_id_when_start_point_setup_fails(monkeypatch):
+    client = JotformClient(api_key="secret-key")
+
+    def fake_request(method, path, **kwargs):
+        if path == "/workflow":
+            return {"content": {"id": "wf_partial"}}
+        if path == "/workflow/wf_partial/updateTree":
+            raise JotformAPIError(504, "gateway timeout")
+        raise AssertionError(path)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    with pytest.raises(PartialWorkflowCreateError) as error:
+        client.create_workflow("Partial")
+
+    assert error.value.workflow_id == "wf_partial"
+    assert "persisting the start point" in str(error.value)
+
+
+def test_publish_workflow_enables_through_public_metadata_endpoint(monkeypatch):
+    client = JotformClient(api_key="secret-key")
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path, kwargs.get("json_body")))
+        return {"content": {"status": "ENABLED"}}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    result = client.publish_workflow("wf_1")
+
+    assert result == {"status": "ENABLED"}
+    assert calls == [("POST", "/workflow/wf_1", {"status": "ENABLED"})]
+
+
 def test_create_form_with_ai_falls_back_to_public_form_api_when_ai_endpoint_is_unavailable(monkeypatch):
     client = JotformClient(api_key="secret-key")
     calls = []
@@ -128,6 +194,66 @@ def test_create_form_with_ai_falls_back_to_public_form_api_when_ai_endpoint_is_u
         ("PUT", "/form"),
         ("GET", "/form/form_fallback_1/questions"),
     ]
+
+
+def test_ai_form_prompt_is_bounded_and_workflow_focused():
+    result = simplify_ai_form_prompt("  Collect name   and email. " + "details " * 300, language="tr")
+
+    assert result.startswith("Create a simple Turkish intake form")
+    assert "at most 8 essential fields" in result
+    assert "do not describe or build the workflow" in result
+    assert len(result) < 1000
+
+
+def test_create_form_with_ai_reuses_operation_id(monkeypatch):
+    client = JotformClient(api_key="secret-key")
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((method, path))
+        return {"content": {"resource_id": "form_1", "questions": {}}}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    first = client.create_form_with_ai("Collect name", operation_id="request-123")
+    second = client.create_form_with_ai("Collect name", operation_id="request-123")
+
+    assert first == second
+    assert calls == [("POST", "/workflow/copilot/createWorkflowForm")]
+
+
+def test_create_form_with_ai_does_not_hide_permission_error_with_fallback(monkeypatch):
+    client = JotformClient(api_key="secret-key")
+
+    monkeypatch.setattr(
+        client,
+        "_request",
+        lambda *args, **kwargs: (_ for _ in ()).throw(JotformAPIError(403, "forbidden")),
+    )
+
+    with pytest.raises(JotformAPIError) as error:
+        client.create_form_with_ai("Collect name")
+
+    assert error.value.status == 403
+
+
+def test_list_methods_forward_pagination(monkeypatch):
+    client = JotformClient(api_key="secret-key")
+    calls = []
+
+    def fake_request(method, path, **kwargs):
+        calls.append((path, kwargs.get("params")))
+        return {"content": []}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    client.list_forms(status="ACTIVE", limit=25, offset=50)
+    client.list_workflows(limit=10, offset=20)
+
+    assert calls[0][1]["limit"] == 25
+    assert calls[0][1]["offset"] == 50
+    assert calls[1][1]["limit"] == 10
+    assert calls[1][1]["offset"] == 20
 
 
 def test_update_tree_flattens_wire_payload_and_unflattens_echo(monkeypatch):

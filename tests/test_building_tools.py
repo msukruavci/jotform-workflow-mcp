@@ -22,7 +22,7 @@ class DummyClient:
         self.update_calls = []
         self.element_details = {}
 
-    def create_workflow(self, title):
+    def create_workflow(self, title, **kwargs):
         self.created = True
         return {"id": "wf_1"}
 
@@ -277,6 +277,63 @@ def test_normalize_email_config_rewrites_content_field_tokens_to_question_names(
     assert "normalized email content field tokens" in hint
     assert "{q2_fullname0}" in normalized["content"]
     assert "{2}" not in normalized["content"]
+
+
+def test_normalize_email_config_rewrites_subject_and_camelcase_content_tokens():
+    client = DummyClient()
+
+    normalized, hint, error = building._normalize_email_config(
+        client,
+        "wf_1",
+        {
+            "to": "{employeeEmail}, hr@workflow.invalid",
+            "subject": "Weekly report for {Full Name}",
+            "content": "Hi {fullName}, your report was reviewed.",
+        },
+        trigger_context=(
+            "form_1",
+            {
+                "2": {"text": "Full Name", "type": "control_fullname", "name": "q2_fullname0"},
+                "3": {"text": "Employee Email", "type": "control_email", "name": "employeeEmail"},
+            },
+            None,
+        ),
+    )
+
+    assert error is None
+    assert "normalized email subject field tokens" in hint
+    assert "normalized email content field tokens" in hint
+    assert normalized["subject"] == "Weekly report for {q2_fullname0}"
+    assert "{q2_fullname0}" in normalized["content"]
+    assert "{fullName}" not in normalized["content"]
+    assert len(normalized["to"]) == 2
+    assert normalized["to"][0]["isQuestion"] is True
+    assert normalized["to"][0]["value"] == "{employeeEmail}"
+    assert normalized["to"][0]["text"] == "Employee Email"
+    assert normalized["to"][1]["isQuestion"] is False
+    assert normalized["to"][1]["value"] == "hr@workflow.invalid"
+
+
+def test_normalize_email_recipients_rejects_ambiguous_email_field_token():
+    client = DummyClient()
+
+    normalized, hint, error = building._normalize_email_recipients(
+        client,
+        "wf_1",
+        {"to": "{missingEmail}"},
+        trigger_context=(
+            "form_1",
+            {
+                "3": {"text": "Employee Email", "type": "control_email", "name": "employeeEmail"},
+                "4": {"text": "Manager Email", "type": "control_email", "name": "managerEmail"},
+            },
+            None,
+        ),
+    )
+
+    assert hint is None
+    assert "does not match a real trigger form email field" in error
+    assert normalized["to"] == "{missingEmail}"
 
 
 def test_question_id_by_token_prefers_visible_label_when_name_is_generated():

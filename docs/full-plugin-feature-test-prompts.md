@@ -44,16 +44,16 @@ Create a new workflow for candidate screening.
 Expected:
 
 ```text
-- It should not directly call create_workflow without a trigger form.
-- It should ask whether I want to use an existing form or create a new AI form.
-- It should keep the question short.
+- It should optionally search one English template query because details are sparse.
+- It should call create_form_with_ai before build_workflow_bulk.
+- It should finish with show_workflow.
 ```
 
 Unexpected:
 
 ```text
 - It creates a forms-free workflow.
-- It calls list_forms before asking for form strategy.
+- It calls list_forms even though no existing form was requested.
 - It creates a placeholder trigger.
 ```
 
@@ -66,7 +66,7 @@ Create a new AI form. The form should collect Full Name, Email Address, Phone Nu
 Expected:
 
 ```text
-- It should call build_workflow_bulk with form_prompt.
+- It should call create_form_with_ai, then build_workflow_bulk with trigger_form_id.
 - The language should be English by default.
 - It should return a workflow builder link in this format:
   https://www.jotform.com/workflow/{workflow_id}/build
@@ -96,7 +96,7 @@ Add an email step after the On Submission trigger. Name it "Application received
 Expected:
 
 ```text
-- It should use trigger_form_fields from get_workflow / build_workflow_bulk if needed.
+- It should use the fields returned by create_form_with_ai or a fresh get_workflow.
 - It should add a workflow_send_email step.
 - It should normalize recipient to the real Email Address field.
 - It should normalize content tokens to real field tokens such as {q2_fullname0}.
@@ -451,7 +451,7 @@ Add a conditional branch after the Application received email. Branch candidates
 Expected:
 
 ```text
-- It should use trigger_form_fields from get_workflow / build_workflow_bulk if it needs field ids.
+- It should use a fresh get_workflow when it needs field ids for an existing workflow.
 - It should use the real field_id for Years of Experience, not the label text.
 - If it cannot safely build the condition, it should ask which real field to use.
 ```
@@ -472,7 +472,7 @@ Use the real "Years of Experience" field from the trigger form. Create two branc
 Expected:
 
 ```text
-- It should use the actual field id from trigger_form_fields.
+- It should use the actual field id from the fresh get_workflow result.
 ```
 
 ---

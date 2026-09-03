@@ -12,59 +12,53 @@ Tool layers:
                  add_step, connect_steps, disconnect_steps, update_step
   5. risky     — delete_step, publish_workflow, restore_workflow_revision,
                  delete_workflow (confirm=True required to act)
+  6. feedback  — record_feature_request
 """
 from dotenv import load_dotenv
 load_dotenv()
 
-from mcp_server.audit_log import AuditedMCPServer  # noqa: E402
+from mcp_server.audit_log import AuditedMCPServer, auto_instrument_module  # noqa: E402
 from mcp_server.jotform_client import JotformClient  # noqa: E402
-from mcp_server.tool_profiles import feature_enabled  # noqa: E402
-from mcp_server.tools import building, discovery, reading, risky, templates  # noqa: E402
+import mcp_server.jotform_client as jotform_client_mod  # noqa: E402
+import mcp_server.tree_builder as tree_builder_mod  # noqa: E402
+from mcp_server.tools import building, discovery, feature_requests, reading, risky, templates  # noqa: E402
 from mcp_server.ui import create_workflow_apps  # noqa: E402
+
+# Auto-instrument all functions in these modules (only log spans taking >= 1.0ms)
+for mod in (
+    building, discovery, feature_requests, reading, risky, templates,
+    jotform_client_mod, tree_builder_mod
+):
+    auto_instrument_module(mod, min_duration_ms=1.0)
 
 client = JotformClient()
 workflow_apps = create_workflow_apps(client)
 
 def build_server_instructions() -> str:
-    template_instruction = (
-        "When the user asks to create, design, or set up a workflow with a brief or high-level request (e.g. 'create an internship workflow', 'build an IT equipment request'), "
-        "automatically call search_workflow_templates first to discover proven domain architectures, standard steps, and required form fields "
-        "(top_k=1 for simple/narrow requests, top_k=2 only when broad or ambiguous, max 3 only when the user explicitly asks for a comprehensive design). "
-        "When the user already provides specific steps and form fields in their prompt, you may skip template search and proceed directly to form creation."
-        if feature_enabled("templates")
-        else (
-            "When the user asks to create, design, or set up a workflow, do not search workflow templates; "
-            "design the workflow directly from the user's request."
-        )
-    )
-    gap_instruction = (
-        "Immediately after build_workflow_bulk completes, call show_workflow(workflow_id) strictly once as the final presentation step; "
-        "do not call inspect_workflow_gaps or get_workflow before show_workflow."
-    )
-    final_check_instruction = "then call show_workflow strictly once to present the interactive visual preview directly."
+    return """
+You manage Jotform Workflows. Jotform Cloud is authoritative.
 
-    return f"""
-{template_instruction}
+Canonical new-workflow flow:
+1. Always call search_workflow_templates first with a concise English query when building a new workflow. This acts as a structural blueprint (few-shot example) of how similar workflows are built in Jotform. Do this even if the user provides details, to align with best practices (top_k=1; top_k=2 only if ambiguous). Never force a weak match.
+2. For form-submission workflows, call create_form_with_ai from this MCP server. Keep its prompt concise: request a simple intake form with at most 8 essential fields and omit workflow steps, routing, notifications, styling, and long explanations. Pass a stable operation_id and reuse it if the same form request is retried. This is the first write and its normalized fields are the form contract. Do not use external Jotform form plugins/tools for workflow creation; they do not return this server's field contract or stay inside the workflow audit/build chain. If fallback_used=true, continue with the returned field contract; build_workflow_bulk reads it from Jotform again before creating the workflow. Mention degraded form generation in the final summary. If the user requested a workflow, do not stop after the form result or ask what to do next; immediately continue to build_workflow_bulk. For scheduled workflows, skip trigger form creation unless the user needs a form assigned inside the workflow.
+3. Call build_workflow_bulk for one complete successful write with title, complete steps, connections, and a stable operation_id. Reuse that operation_id for every retry of the same user intent. Pass trigger_form_id for form-submission workflows; pass trigger_type="schedule" and trigger_schedule for scheduled workflows. If the tool returns a correctable argument error before any side effect, fix that specific issue and retry with the same operation_id. If it returns a workflow_id with an error, reload and resume that workflow; never create a replacement.
+4. Call show_workflow once as the final read-only presentation. Never mutate after showing it.
 
-When creating a new workflow from scratch, first call create_form_with_ai(prompt=...) to generate the trigger form and get its exact fields. Then call build_workflow_bulk(trigger_form_id=..., steps=..., connections=...) using that returned form_id and those exact field labels/ids. Finally call show_workflow(workflow_id). Do not insert a form-field lookup or get_workflow call between these three operations. Prefer exact field_id values for conditions, assignees, approvers, and email recipients whenever the returned field type is compatible; exact labels are also accepted.
+For an existing workflow mutation: get_workflow -> build_workflow_bulk -> show_workflow. Use the fresh numeric IDs and pass revision_id as expected_revision_id. Put existing config edits in step_updates so creates, updates, deletes, and rewiring share one updateTree write. If only unrelated steps changed, build_workflow_bulk rebases onto the latest live graph. If the affected mutation scope changed, it returns conflict=true without writing; reload, recalculate once against the new revision, and retry with the same operation_id. Never overwrite an affected concurrent edit blindly.
 
-    build_workflow_bulk details: For an existing workflow, pass workflow_id (and optionally delete_step_ids to delete obsolete steps in the same atomic call). Include complete personalized email/task subjects, content/body, taskDescription,
-    and {{formField}} placeholders in steps[].config during that initial bulk call; do not build basic placeholders and then loop through low-level update tools. For standard approval/task/branch/email flows,
-    use the core cached step schemas from the system prompt and skip exploratory list_step_types/get_step_schema calls; call get_step_schema only for specialized or unfamiliar step types from the user request or retrieved templates,
-    and batch multiple unfamiliar types with get_step_schema(step_types=[...]). Use the fields returned by create_form_with_ai as the authoritative trigger-form contract. build_workflow_bulk resolves exact field IDs deterministically and fails instead of guessing when a label is ambiguous.
-    Compact graph rule: for high-level create requests, build a clean, focused baseline of roughly 3-5 workflow steps after the trigger (e.g. trigger -> approval/task -> success/failure emails). Do not expand every retrieved template department or exception into its own node, and do not add artificial end nodes when leaf email/task steps conclude the path. Use 6+ steps only when the user explicitly asks for a detailed end-to-end, comprehensive, advanced, or multi-department workflow.
-    build_workflow_bulk accepts compact aliases and self-heals common omissions: recipient_email/recipients/body/message map to to/content; approver_email/approvers map to approver; assignee_email/assignees/description/task_details map to assignee/taskDescription. Missing approval/task/email to, subject, content, approver, assignee, or taskDescription fields are filled with safe draft defaults and returned as warnings, so do not spend an extra schema/read retry just to repair those fields.
-    One-write rule: call build_workflow_bulk once for the intended create/update graph. If it returns warnings but no error, treat the write as successful and call show_workflow directly for immediate presentation without an extra intermediate get_workflow call; do not call build_workflow_bulk again merely to clean warnings, aliases, safe defaults, or dropped non-essential fields. If the first call errors on a common approval/task/email field, retry at most once with that specific field fixed.
-    PROACTIVE BUILD & SAFE DRAFT RULE: Never stall, refuse, or ask confirmation for draft placeholder emails (e.g. advisor@university.edu, manager@company.com, orders@company.com, student@university.edu) or form fields. All workflows created here are saved in unpublished draft mode on Jotform Cloud and do not send live emails or leak data during creation. Populate sensible role-based draft placeholders and standard outcomes immediately, execute build_workflow_bulk in one shot, and offer the user to customize the emails/fields after presenting the workflow.
-    Form creation rule: use create_form_with_ai as the first-class first step whenever a new workflow needs an AI-generated trigger form. Do not use or suggest any separate Jotform Form plugin/tool for the trigger form, and do not browse existing forms unless the user explicitly asks to use one. form_prompt on build_workflow_bulk remains a backward-compatible fallback only; do not choose it for the normal workflow creation path. Standalone workflow creation tools and low-level updateTree tools such as add_step/connect_steps/disconnect_steps/update_step/delete_step are intentionally hidden; build_workflow_bulk owns those write paths internally (always pass delete_step_ids to build_workflow_bulk to remove steps atomically). If build_workflow_bulk is accidentally called with form_prompt/trigger_form_id but no steps for a new workflow, it creates a standard approval draft; still prefer sending the complete intended graph yourself. {gap_instruction}
-    External & Canvas Edits Rule: Treat Jotform Cloud as authoritative for every existing workflow. If the user says they changed it on the website, in the builder, or in the Canvas UI, immediately reload that workflow with get_workflow or show_workflow before reasoning from step/link IDs. Before every new mutation of an existing workflow, obtain a fresh live revision_id (and updated_at when available), use only the IDs from that read, and pass revision_id as expected_revision_id to build_workflow_bulk. If a tool reports conflict=true, do not auto-retry the write. Reload the live graph for display, explain that external changes were detected, and ask the user whether to apply the intended change on top of the new live version. This rule does not add an extra read to the brand-new workflow creation sequence.
-    Deprecated tool rule: inspect_workflow_gaps is no longer part of the normal workflow build path; do not call it even if it appears in older instructions or examples.
-    Use show_workflows ONLY when the user asks to see, browse, list, or choose from multiple workflows.
-    When the user asks to open, preview, or inspect a specific workflow (by name or ID), resolve the ID (using list_workflows internally only if needed) and call show_workflow directly — do NOT call show_workflows.
-    After creating or updating a workflow, finish every requested mutation first,
-    {final_check_instruction}
-    Never show an intermediate graph or call show_workflow and then continue mutating. After a
-    workflow is deleted, call show_workflows instead of show_workflow.
+build_workflow_bulk never creates a form. For new draft workflows, use reserved role placeholders such as hr@workflow.invalid or manager@workflow.invalid when a fixed staff approver/assignee/recipient is unknown; do not ask the user solely for those draft staff emails. Use trigger-form email fields for applicant/customer notifications. To add a form after a scheduled start, create a workflow_assign_form step with formID and assignee; do not pass that form as trigger_form_id. The server validates but does not invent email content or fallback steps for you; draft reasonable subjects, bodies, task descriptions, outcomes, branches, and connections from the user's request and the template blueprint. Equivalent aliases may be normalized. Use exact form field names from create_form_with_ai/get_workflow inside email subject/content variables, and use exact email field IDs/names/labels for email recipients. Do not guess camelCase field variables from labels. When summarizing emails to the user, refer to dynamic fields by their visible labels instead of exposing raw Jotform tags like {q2_textbox0}. Do not add artificial end nodes when terminal email/task steps already end a path. Do not call list_step_types or get_step_schema for ordinary approval, assign form, task, email, integration shell, binary branch, or conditional branch workflows; use them only for unfamiliar step types.
+
+For scheduled starts, pass trigger_schedule with Jotform's persisted executeWhen/end keys: schedule__executeWhen__afterAmount, schedule__executeWhen__afterUnit, schedule__executeWhen__customDate, schedule__executeWhen__executeOnCustomDate, and schedule__end__recurring. Do not use schedule__type, schedule__days, schedule__time, or schedule__timezone as final schedule fields; those legacy aliases are server-normalized only as a fallback. Submit the schedule first so the server can use the Jotform-profile or configured IANA timezone. Ask one timezone question only if the tool explicitly returns a missing-timezone validation error. A timezone-aware UTC customDate is also acceptable.
+
+If the user asks to add a 3rd-party integration such as Slack, WhatsApp, Zendesk, Asana, Google Sheets, Microsoft Teams, or similar, add it as a blank shell step. Set type="workflow_integration", set StepSpec subType to the supported integration ID, and do not fill authentication, OAuth, account, mapping, channel, project, ticket, or message configuration fields. The user will click "+ Complete Settings" in the Jotform web UI. If the requested integration is not in the allowed subType enum, do not invent it; explain the limitation.
+
+For broad new-workflow requests, build a practical operational draft with the amount of structure the domain actually needs; do not follow a fixed step count. Include intake/receipt notification, review/approval/task paths, parallel work, escalation, and outcome notifications only when they are useful. Template results are optional inspiration but should not shrink a reasonable business process into a toy graph.
+
+Modify only what the user requested. Diagnostics never authorize cleanup. If deletion would orphan nodes, show the returned impact and ask what to do. Every build_workflow_bulk write leaves the workflow DISABLED, including edits to existing workflows.
+
+Use short English intent and reason values without PII. Do not call publish_workflow as a post-build status check; after show_workflow, tell the user the workflow is disabled and ask whether they want to enable it. Publishing and restoring are preview/confirm operations. For publishing, echo the exact revision_id from preview. For restoring, echo both the target revision_id and the preview's current_revision_id as expected_current_revision_id. Never publish or restore automatically. Recommend replacing all .invalid/.internal recipient placeholders before publishing; if the user explicitly accepts the warning and wants to enable anyway, call publish_workflow with allow_draft_recipients=true during the confirmed publish call.
+
+Use show_workflows only for browsing multiple workflows. Use show_workflow for one workflow and only after all writes are complete. Do not answer the user, ask whether to enable/publish, or summarize the completed workflow until show_workflow has been called. If the user asks for an unsupported step, trigger, integration, or notification channel, explain the limitation or show the closest completed draft. If the user later explicitly asks to enable/publish, start the separate publish_workflow flow. Always include direct workflow_url and form_url/trigger_form_url/assigned_forms[].form_url links in the final answer. The iframe is permanently read-only; there is no Canvas write tool.
 """.strip()
 
 
@@ -81,6 +75,8 @@ reading.register(mcp, client)
 templates.register(mcp)
 building.register(mcp, client)
 risky.register(mcp, client)
+feature_requests.register(mcp)
+
 
 if __name__ == "__main__":
     mcp.run()

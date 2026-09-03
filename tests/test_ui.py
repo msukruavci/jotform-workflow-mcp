@@ -50,15 +50,35 @@ class FakeClient:
                     "x": 10,
                     "y": 200,
                 },
+                {
+                    "element_id": "3",
+                    "type": "workflow_send_email",
+                    "name": "Unfinished external email",
+                    "to": [{"value": "student@example.com", "text": "student@example.com"}],
+                    "subject": "",
+                    "content": "",
+                    "x": 10,
+                    "y": 380,
+                },
             ],
-            "links": [{
-                "link_id": "2",
-                "fromElement": "2",
-                "toElement": "1",
-                "fromPortName": "DYNAMIC_BOTTOM_1_Out",
-                "toPortName": "DYNAMIC_TOP_1_In",
-                "type": "default-link",
-            }],
+            "links": [
+                {
+                    "link_id": "2",
+                    "fromElement": "2",
+                    "toElement": "1",
+                    "fromPortName": "DYNAMIC_BOTTOM_1_Out",
+                    "toPortName": "DYNAMIC_TOP_1_In",
+                    "type": "default-link",
+                },
+                {
+                    "link_id": "3",
+                    "fromElement": "1",
+                    "toElement": "3",
+                    "fromPortName": "RIGHT_MIDDLE_Out",
+                    "toPortName": "LEFT_MIDDLE_In",
+                    "type": "default-link",
+                },
+            ],
         }
 
     def get_form(self, form_id):
@@ -143,6 +163,7 @@ def test_show_workflow_returns_versioned_authoritative_payload():
     assert result.structured_content["view"] == "workflow-preview"
     assert result.structured_content["schemaVersion"] == 2
     assert result.structured_content["data"]["workflow_id"] == "wf-1"
+    assert result.structured_content["data"]["workflow_url"] == "https://www.jotform.com/workflow/wf-1/build"
     assert result.structured_content["data"]["elements"][0]["element_id"] == "1"
     assert result.structured_content["data"]["elements"][0]["x"] == 10
     assert result.structured_content["data"]["elements"][0]["resourceObject"] == {
@@ -159,3 +180,36 @@ def test_show_workflow_returns_versioned_authoritative_payload():
     }
     assert result.structured_content["data"]["elements"][1]["outcomes"][0]["linkID"] == 2
     assert result.structured_content["data"]["links"][0]["labels"] == [{"label": "Complete"}]
+    assert result.structured_content["data"]["step_states"][2] == {
+        "step_id": "3",
+        "type": "workflow_send_email",
+        "label": "Unfinished external email",
+        "incoming": [{"link_id": "3", "step_id": "1", "outcome": None}],
+        "outgoing": [],
+        "key_config": {
+            "to": ["student@example.com"],
+            "subject": None,
+            "content_present": False,
+            "content_excerpt": None,
+        },
+        "missing_fields": ["subject", "content"],
+        "config_complete": False,
+    }
+    assert result.structured_content["data"]["email_steps"] == [
+        {
+            "step_id": "3",
+            "label": "Unfinished external email",
+            "to": ["student@example.com"],
+            "subject": None,
+            "content_present": False,
+            "content_excerpt": None,
+            "missing_fields": ["subject", "content"],
+            "incoming": [{"link_id": "3", "from_step": "1", "outcome": None}],
+        }
+    ]
+    assert result.structured_content["data"]["warnings"] == []
+    assert "health" not in result.structured_content["data"]
+    assert "diagnostics" not in result.structured_content["data"]
+    assert len(result.content) == 1
+    assert "resourceObject" not in result.content[0].text
+    assert len(result.content[0].text) < 500

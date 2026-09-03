@@ -55,7 +55,7 @@ async def run_anthropic(question: str, session_id: str, messages: list[dict]) ->
     tools = await build_tool_definitions()
     messages.append({"role": "user", "content": question})
 
-    trace: dict = {}
+    trace: dict = {"session_id": session_id}
     t0 = time.perf_counter()
     messages = await converse(client, tools, messages, trace=trace)
     duration_ms = (time.perf_counter() - t0) * 1000
@@ -86,7 +86,7 @@ async def run_gemini(question: str, session_id: str, previous_id: str | None) ->
     client = genai.Client()
     tools = await build_tool_declarations()
 
-    trace: dict = {}
+    trace: dict = {"session_id": session_id}
     t0 = time.perf_counter()
     previous_id = await converse(client, tools, question, previous_id, trace=trace)
     duration_ms = (time.perf_counter() - t0) * 1000

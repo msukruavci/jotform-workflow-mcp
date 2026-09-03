@@ -162,6 +162,13 @@ def _parse_json_params(name: str, args: dict) -> tuple[dict, str | None]:
             else:
                 cleaned_steps.append(s)
         parsed["steps"] = cleaned_steps
+    if "step_updates" in parsed and isinstance(parsed["step_updates"], list):
+        for update in parsed["step_updates"]:
+            if isinstance(update, dict) and isinstance(update.get("config"), str):
+                try:
+                    update["config"] = json.loads(update["config"])
+                except json.JSONDecodeError as error:
+                    return parsed, f"Step update config was not valid JSON ({error})."
 
     return parsed, None
 
@@ -178,7 +185,7 @@ async def build_tool_declarations() -> list[dict]:
     ]
 
 
-async def run_tool(name: str, args: dict) -> str:
+async def run_tool(name: str, args: dict, session_id: str | None = None) -> str:
     args, error = _parse_json_params(name, args)
     if error:
         # Returned as a tool result, not raised — the model reads it and
@@ -186,12 +193,16 @@ async def run_tool(name: str, args: dict) -> str:
         return json.dumps({"error": error})
 
     try:
-        result = await mcp.call_tool(name, args)
+        context = {"session_id": session_id} if session_id else None
+        result = await mcp.call_tool(name, args, context)
     except Exception as e:  # noqa: BLE001
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
 
     structured = getattr(result, "structured_content", None)
     if structured is not None:
+        if name == "show_workflow":
+            from agent.run import _model_result
+            structured = _model_result(name, structured)
         return json.dumps(structured, ensure_ascii=False)
 
     parts = [getattr(b, "text", None) for b in (getattr(result, "content", None) or [])]
@@ -328,7 +339,9 @@ async def converse(client, tools: list[dict], user_text: str,
         for call in calls:
             print(f"  [tool] {call.name}({json.dumps(call.arguments, ensure_ascii=False)[:120]})")
             t0 = time.perf_counter()
-            output = await run_tool(call.name, call.arguments or {})
+            output = await run_tool(
+                call.name, call.arguments or {}, (trace or {}).get("session_id")
+            )
             duration_ms = (time.perf_counter() - t0) * 1000
             preview = output[:150].replace("\n", " ")
             print(f"  [result] {preview}{'...' if len(output) > 150 else ''}")
@@ -376,7 +389,7 @@ async def main() -> int:
 
     if len(sys.argv) > 1:
         question = " ".join(sys.argv[1:])
-        trace: dict = {}
+        trace: dict = {"session_id": session_id}
         t0 = time.perf_counter()
         await converse(client, tools, question, previous_id, trace=trace)
         duration_ms = (time.perf_counter() - t0) * 1000
@@ -398,7 +411,7 @@ async def main() -> int:
             return 0
         if user_input.lower() in ("exit", "quit", ""):
             return 0
-        trace = {}
+        trace = {"session_id": session_id}
         t0 = time.perf_counter()
         previous_id = await converse(client, tools, user_input, previous_id, trace=trace)
         duration_ms = (time.perf_counter() - t0) * 1000

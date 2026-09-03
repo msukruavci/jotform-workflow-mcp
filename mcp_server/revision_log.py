@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+import fcntl
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,9 @@ from mcp_server.jotform_client import (
 )
 
 PROCESS_SESSION_ID = os.environ.get("MCP_REVISION_SESSION_ID") or uuid.uuid4().hex
+MAX_REVISIONS_PER_WORKFLOW = max(1, int(os.environ.get("MCP_REVISION_MAX_PER_WORKFLOW", "50")))
+DEFAULT_DIR_MODE = int(os.environ.get("MCP_REVISION_DIR_MODE", "700"), 8)
+DEFAULT_FILE_MODE = int(os.environ.get("MCP_REVISION_FILE_MODE", "600"), 8)
 
 
 def _workflow_url(workflow_id: str | None) -> str | None:
@@ -73,8 +77,7 @@ def capture_workflow_revision(
     *,
     tool_name: str | None = None,
 ) -> dict:
-    live_snapshot = client.get_workflow_combined(workflow_id)
-    snapshot = hydrate_workflow_snapshot(client, workflow_id, live_snapshot)
+    snapshot = _read_full_workflow_snapshot(client, workflow_id)
     record = {
         "revision_id": uuid.uuid4().hex,
         "timestamp": _now(),
@@ -83,17 +86,51 @@ def capture_workflow_revision(
         "workflow_url": _workflow_url(str(workflow_id)),
         "reason": reason,
         "tool_name": tool_name,
-        "remote_revision_id": workflow_revision_id(live_snapshot),
-        "remote_updated_at": workflow_updated_at(live_snapshot),
+        "remote_revision_id": workflow_revision_id(snapshot),
+        "remote_updated_at": workflow_updated_at(snapshot),
         "snapshot": snapshot,
     }
 
     path = _revision_path(workflow_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
+    path.parent.chmod(DEFAULT_DIR_MODE)
+    with path.open("a+", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
         fh.write(json.dumps(record, ensure_ascii=False, default=str))
         fh.write("\n")
+        fh.flush()
+        fh.seek(0)
+        lines = fh.read().splitlines()
+        if len(lines) > MAX_REVISIONS_PER_WORKFLOW:
+            fh.seek(0)
+            fh.truncate()
+            fh.write("\n".join(lines[-MAX_REVISIONS_PER_WORKFLOW:]) + "\n")
+            fh.flush()
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    path.chmod(DEFAULT_FILE_MODE)
     return record
+
+
+def _read_full_workflow_snapshot(client: JotformClient, workflow_id: str) -> dict:
+    """Prefer one full /combined read; hydrate only compatibility clients/mocks."""
+    try:
+        return client.get_workflow_combined(workflow_id, fetch_essential=False)
+    except TypeError:
+        snapshot = client.get_workflow_combined(workflow_id)
+        return hydrate_workflow_snapshot(client, workflow_id, snapshot)
+
+
+def _trim_revision_file(path: Path) -> None:
+    with path.open("r+", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        lines = fh.read().splitlines()
+        if len(lines) > MAX_REVISIONS_PER_WORKFLOW:
+            fh.seek(0)
+            fh.truncate()
+            fh.write("\n".join(lines[-MAX_REVISIONS_PER_WORKFLOW:]) + "\n")
+            fh.flush()
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    path.chmod(DEFAULT_FILE_MODE)
 
 
 def hydrate_workflow_snapshot(client: JotformClient, workflow_id: str, snapshot: dict) -> dict:
@@ -222,7 +259,7 @@ def restore_workflow_revision(
     workflow_id: str,
     revision: dict,
 ) -> tuple[dict, dict]:
-    current = hydrate_workflow_snapshot(client, workflow_id, client.get_workflow_combined(workflow_id))
+    current = _read_full_workflow_snapshot(client, workflow_id)
     target = revision.get("snapshot")
     if not isinstance(target, dict):
         raise ValueError("Revision has no workflow snapshot.")
@@ -230,6 +267,21 @@ def restore_workflow_revision(
     link_deletes, element_writes, link_creates = build_restore_payloads(current, target)
     if link_deletes:
         client.update_tree(workflow_id, links=link_deletes)
-    if element_writes or link_creates:
-        client.update_tree(workflow_id, elements=element_writes, links=link_creates)
+    try:
+        if element_writes or link_creates:
+            client.update_tree(workflow_id, elements=element_writes, links=link_creates)
+    except Exception as error:
+        if link_deletes:
+            _, rollback_elements, rollback_links = build_restore_payloads(target, current)
+            try:
+                client.update_tree(
+                    workflow_id,
+                    elements=rollback_elements,
+                    links=rollback_links,
+                )
+            except Exception as rollback_error:
+                raise RuntimeError(
+                    f"Restore failed and automatic rollback also failed: {rollback_error}"
+                ) from error
+        raise
     return current, target

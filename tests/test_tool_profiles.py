@@ -15,6 +15,7 @@ def test_single_tool_surface_hides_deprecated_and_field_lookup_tools():
         "get_form_fields",
         "build_workflow_bulk",
         "create_form_with_ai",
+        "record_feature_request",
         "create_workflow",
         "create_workflow_with_ai_form",
         "add_step",
@@ -31,6 +32,7 @@ def test_single_tool_surface_hides_deprecated_and_field_lookup_tools():
         "get_workflow",
         "build_workflow_bulk",
         "create_form_with_ai",
+        "record_feature_request",
         "delete_workflow",
     ]
 
@@ -39,8 +41,8 @@ def test_fast_tools_exposes_decoupled_workflow_sequence_as_first_class_tools():
     assert {
         "create_form_with_ai",
         "build_workflow_bulk",
-        "apply_workflow_canvas_diff",
         "show_workflow",
+        "record_feature_request",
     } <= FAST_TOOLS
 
 

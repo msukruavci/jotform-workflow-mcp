@@ -88,7 +88,7 @@ DESCRIPTIONS = {
     "workflow_ai_response": "Produce an AI-generated response",
     "workflow_ai_agent_web_search": "Let an AI agent search the web",
     "workflow_webhook": "Call an external webhook URL",
-    "workflow_integration": "Connect to a third-party service (e.g. Google Calendar)",
+    "workflow_integration": "Blank shell for a third-party integration; user completes settings in the Jotform UI",
     "workflow_payment_gateway": "Take a payment",
     "workflow_payment_verification": "Verify a payment, with a verifier email",
     "workflow_sign_document": "Request a document signature (Jotform Sign)",

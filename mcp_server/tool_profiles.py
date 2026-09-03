@@ -13,7 +13,6 @@ DEFAULT_PROFILE = "default"
 FAST_TOOLS = frozenset({
     "create_form_with_ai",
     "build_workflow_bulk",
-    "apply_workflow_canvas_diff",
     "show_workflow",
     "show_workflows",
     "list_step_types",
@@ -27,6 +26,7 @@ FAST_TOOLS = frozenset({
     "publish_workflow",
     "restore_workflow_revision",
     "delete_workflow",
+    "record_feature_request",
 })
 
 DEPRECATED_TOOL_NAMES = frozenset({

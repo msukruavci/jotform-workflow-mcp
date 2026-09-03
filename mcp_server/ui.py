@@ -1,12 +1,14 @@
 """MCP Apps resource and presentation tools for workflow UI surfaces."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
 from typing import Annotated
 
 from mcp.server.apps import Apps, ResourceCsp
+from mcp_types import CallToolResult, TextContent
 from pydantic import Field
 
 from mcp_server.jotform_client import JotformClient
@@ -106,7 +108,10 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             "openai/toolInvocation/invoked": "Workflows loaded",
         },
     )
-    async def show_workflows() -> WorkflowListUIResult:
+    async def show_workflows(
+        limit: Annotated[int, Field(description="Page size, 1-100. Default 50.")] = 50,
+        offset: Annotated[int, Field(description="Zero-based page offset. Default 0.")] = 0,
+    ) -> WorkflowListUIResult:
         """
         Show the user's workflows in the interactive workflow list UI.
 
@@ -114,7 +119,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
         or choose from their workflows. It reads Jotform directly; never build
         its payload from assistant prose or remembered tool results.
         """
-        return WorkflowListUIResult(data=read_workflow_list(client))
+        return WorkflowListUIResult(data=read_workflow_list(client, limit=limit, offset=offset))
 
     @apps.tool(
         resource_uri=WORKFLOW_UI_RESOURCE_URI,
@@ -130,7 +135,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             str,
             Field(description="Workflow id returned by build_workflow_bulk or resolved from list_workflows."),
         ],
-    ) -> WorkflowPreviewUIResult:
+    ) -> CallToolResult:
         """
         Show one workflow in the interactive read-only workflow preview UI.
 
@@ -141,6 +146,24 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
         already returns the complete summary, and show_workflow fetches and verifies the
         live workflow graph internally. Do not call it for intermediate write steps.
         """
-        return WorkflowPreviewUIResult(data=read_workflow_preview(client, workflow_id))
+        payload = WorkflowPreviewUIResult(data=read_workflow_preview(client, workflow_id))
+        structured = payload.model_dump(mode="json", by_alias=True)
+        data = structured["data"]
+        summary = {
+            "view": "workflow-preview",
+            "workflow_id": data.get("workflow_id"),
+            "workflow_url": data.get("workflow_url"),
+            "title": data.get("title"),
+            "status": data.get("status"),
+            "revision_id": data.get("revision_id"),
+            "step_count": len(data.get("step_states") or []),
+            "warnings": data.get("warnings") or [],
+            "error": data.get("error"),
+            "ui_rendered": True,
+        }
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(summary, ensure_ascii=False))],
+            structured_content=structured,
+        )
 
     return apps

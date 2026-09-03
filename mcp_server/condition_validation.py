@@ -51,7 +51,7 @@ def validate_terms(
         if not isinstance(question, dict):
             raise ConditionValidationError(
                 f"Field {field_id!r} in {context} is not on trigger form {form_id}.",
-                hint="Use trigger_form_fields from build_workflow_bulk/get_workflow or a visible field label.",
+                hint="Use fields from create_form_with_ai or a fresh get_workflow, or pass a visible field label.",
             )
 
         operator = term.get("operator")

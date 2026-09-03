@@ -28,14 +28,15 @@ from __future__ import annotations
 
 import re
 
+from mcp_server import audit_log
 from mcp_server import schema_registry
+from mcp_server.integrations import SUPPORTED_WORKFLOW_INTEGRATION_SUBTYPES
 
 # The one payload shape gap 2 confirmed works for any link, regardless of
 # what the two ends actually are. Port names are cosmetic (server rewrites
 # them); `type` is not, so it is a constant, never a parameter.
 LINK_DEFAULTS = {
     "type": "default-link",
-    "points": [{"a": "1"}],
     "fromPortName": "DYNAMIC_BOTTOM_1_Out",
     "toPortName": "DYNAMIC_TOP_1_In",
 }
@@ -583,6 +584,34 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
     clean: dict = {}
     warnings: list[str] = []
 
+    if canonical_type == "workflow_integration":
+        subtype = str(config.get("subType") or "").strip()
+        if not subtype:
+            raise ValidationError(
+                "workflow_integration requires subType. Use one supported integration ID "
+                "and leave authentication/settings blank."
+            )
+        if subtype not in SUPPORTED_WORKFLOW_INTEGRATION_SUBTYPES:
+            raise ValidationError(
+                f"Unsupported workflow integration subType {subtype!r}. "
+                f"Allowed values: {SUPPORTED_WORKFLOW_INTEGRATION_SUBTYPES}"
+            )
+        clean = {
+            "name": str(config.get("name") or subtype).strip(),
+            "subType": subtype,
+            "actionType": "",
+            "integrationAccountID": "",
+            "integrationID": "",
+            "internalFormID": "",
+            "mode": "",
+            "responseMap": [],
+        }
+        allowed_shell_fields = set(clean)
+        for key in config:
+            if key not in allowed_shell_fields and key not in ("type", "element_id", "id", "x", "y", "position"):
+                warnings.append(f"workflow_integration shell ignored config field '{key}'")
+        return clean, warnings
+
     for key, value in (config or {}).items():
         if key in ("x", "y", "position", "type", "element_id", "id"):
             continue  # server-managed or set separately; never caller-supplied
@@ -715,7 +744,7 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
     if not isinstance(outcomes, list) or not outcomes:
         raise ValidationError(
             "workflow_conditional_branch.outcomes must be a non-empty list. "
-            "Use trigger_form_fields from build_workflow_bulk/get_workflow, then "
+            "Use fields from create_form_with_ai or a fresh get_workflow, then "
             "provide at least one branch with conditionTerms using real form field ids."
         )
 
@@ -845,6 +874,7 @@ def build_link_create(link_id: int, from_id: int | str, to_id: int | str) -> dic
         "link_id": link_id,
         "fromElement": from_id,
         "toElement": to_id,
+        "points": [{"a": "1"}],
         **LINK_DEFAULTS,
     }
     return {"action": "create", "linkID": link_id, "data": data}
@@ -1023,3 +1053,21 @@ def build_outcome_update(source_element: dict, outcome_id, link_id: int | None) 
             pass
         updated.append({**outcome, "linkID": link_id} if current_id == wanted_id else outcome)
     return build_element_update(source_element.get("element_id"), {"outcomes": updated})
+
+
+for _traced_helper_name in (
+    "compute_position",
+    "compute_layered_dag_positions",
+    "validate_config",
+    "_validate_approval_outcomes",
+    "_validate_task_outcomes",
+    "_validate_conditional_branch_outcomes",
+    "build_element_create",
+    "build_element_update",
+    "build_link_create",
+    "build_link_label_update",
+    "build_link_delete",
+    "build_outcome_clears_for_links",
+    "build_outcome_update",
+):
+    globals()[_traced_helper_name] = audit_log.trace_function(globals()[_traced_helper_name])

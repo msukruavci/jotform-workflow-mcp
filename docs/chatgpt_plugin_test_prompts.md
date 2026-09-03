@@ -2,7 +2,7 @@
 
 Paste these prompts into ChatGPT one by one. This sequence tests the MCP server end to end:
 
-- asks for the trigger form strategy before creating a workflow
+- uses the canonical optional-template -> AI form -> bulk build -> show flow
 - creates a new AI form and binds it as the workflow trigger
 - shows direct workflow/form URLs
 - asks for missing task, approval, email, condition, and outcome details
@@ -11,7 +11,7 @@ Paste these prompts into ChatGPT one by one. This sequence tests the MCP server 
 - creates revision logs and restores a previous revision
 - keeps audit logs per server session
 
-## Test 1 - Workflow Trigger Strategy
+## Test 1 - Brief Workflow Request
 
 ```text
 I want to create a new workflow for a candidate application process.
@@ -19,8 +19,8 @@ I want to create a new workflow for a candidate application process.
 
 Expected behavior:
 
-- It should not create the workflow immediately.
-- It should briefly ask whether to use an existing form or create a new form.
+- It should search one English template query because the request is underspecified.
+- It should then call `create_form_with_ai` before `build_workflow_bulk`.
 
 ## Test 2 - Create With A New AI Form
 
@@ -30,7 +30,8 @@ Create a new form. Keep it in English. The form should collect candidate applica
 
 Expected behavior:
 
-- It should use `build_workflow_bulk` with `form_prompt`.
+- It should call `create_form_with_ai`, then pass its `form_id` to `build_workflow_bulk`.
+- It should finish with `show_workflow` and make no later mutation.
 - The response should include direct links:
   - `https://www.jotform.com/workflow/{workflow_id}/build`
   - `https://www.jotform.com/build/{form_id}`
@@ -90,7 +91,7 @@ If the candidate date of birth starts with 2006-08-07, send it to the Rejected A
 Expected behavior:
 
 - It should not write `field: "Date of birth"` as plain text.
-- It should use `trigger_form_fields` from `get_workflow` / `build_workflow_bulk`.
+- It should use fields from `create_form_with_ai` or a fresh `get_workflow`.
 - It should resolve the real field ID from the trigger form fields or ask which field to use.
 
 ## Test 8 - Conditional Branch With A Real Field

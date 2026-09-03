@@ -57,23 +57,31 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     def list_step_types(
         category: Annotated[str, Field(
-            description='Optional filter — "basic" (email, task, approval), '
-                        '"logic" (conditions, branching, loops), "ai" '
-                        '(AI-powered steps), or "integration" (webhooks, '
-                        "payments, signing). Leave empty to see all."
+            description=(
+                'Optional filter — "basic", "logic", "ai", or "integration". '
+                "Skip this for ordinary approval/task/email/integration shell workflows; "
+                "build_workflow_bulk already documents those common step configs."
+            )
         )] = "",
     ) -> StepTypeList:
         """
         List the workflow step types you can add to a workflow.
 
-        Each entry gives an add_step step_type, the name the Jotform builder
-        shows for it (ui_name), and a one-line description. Some UI entries
-        are variants with a canonical_type and subtype; pass the listed
-        step_type directly to add_step.
+        Use this only when the user asks what step types exist or when you need
+        a specialized step beyond the common workflow_approval,
+        workflow_assign_task, workflow_send_email, workflow_binary_decision,
+        workflow_integration blank shell, and workflow_conditional_branch
+        patterns. Do not call it during a normal new-workflow build just to
+        rediscover approval/email/task/integration shell.
+
+        Each entry gives a build_workflow_bulk step type, the name the Jotform
+        builder shows for it (ui_name), and a one-line description. Some UI
+        entries are variants with a canonical_type and subtype; pass the listed
+        step_type directly when creating steps.
 
         schema_available=false means this server has no field schema for that
         type: it can appear in an existing workflow, but get_step_schema will
-        not describe it. Call get_step_schema on a type before configuring it.
+        not describe it.
         """
         return StepTypeList(
             step_types=[StepTypeSummary(**t) for t in schema_registry.list_types(category or None)]
@@ -82,14 +90,25 @@ def register(mcp: MCPServer) -> None:
     @mcp.tool()
     def get_step_schema(
         step_type: Annotated[str, Field(
-            description='Single step type name (e.g. "workflow_send_email").'
+            description=(
+                'Single specialized step type name. Skip for common workflow_approval, '
+                'workflow_assign_task, workflow_send_email, workflow_integration shell, '
+                'and workflow_binary_decision.'
+            )
         )] = "",
         step_types: Annotated[list[str], Field(
-            description="Optional list of step type names to retrieve schemas for in a single batch call."
+            description=(
+                "Optional list of specialized step type names to retrieve schemas for in a single batch call."
+            )
         )] = [],
     ) -> StepSchema:
         """
         Get the configurable fields for one or more workflow step types.
+
+        Use this for unfamiliar/specialized steps only. For common approval,
+        task, email, integration shell, and binary branch steps,
+        build_workflow_bulk's description includes enough config guidance and
+        you should continue directly to build_workflow_bulk.
 
         Returns field names, types, allowed values and descriptions. Where a
         field takes a list of objects, item_fields shows what one item holds.

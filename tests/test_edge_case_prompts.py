@@ -23,10 +23,11 @@ class MockLiveClient:
         self.workflows = {}
         self.forms = {}
         self.update_calls = []
+        self.status_updates = []
         self.next_element_id = 100
         self.next_link_id = 500
 
-    def create_form_with_ai(self, prompt: str, language: str = "en") -> dict:
+    def create_form_with_ai(self, prompt: str, *, form_type: str = "classic", language: str = "en") -> dict:
         form_id = f"form_{len(self.forms) + 1}"
         form_data = {
             "id": form_id,
@@ -41,14 +42,11 @@ class MockLiveClient:
         }
         self.forms[form_id] = form_data
         return {
+            "resource_id": form_id,
             "form_id": form_id,
             "title": form_data["title"],
             "url": form_data["url"],
-            "questions": [
-                {"field_id": "2", "name": "adSoyad", "label": "Ad Soyad", "type": "control_textbox"},
-                {"field_id": "3", "name": "email", "label": "E-posta", "type": "control_email"},
-                {"field_id": "4", "name": "izinTuru", "label": "İzin Türü", "type": "control_dropdown", "options": ["Yıllık İzin", "Mazeret", "Hastalık"]},
-            ],
+            "questions": form_data["questions"],
             "language": language,
         }
 
@@ -132,6 +130,13 @@ class MockLiveClient:
         if form_id in self.forms:
             return self.forms[form_id]["questions"]
         return {}
+
+    def update_workflow_metadata(self, workflow_id: str, **fields) -> dict:
+        self.status_updates.append({"workflow_id": workflow_id, "fields": fields})
+        wf = self.workflows.get(workflow_id)
+        if wf and "status" in fields:
+            wf["status"] = fields["status"]
+        return {"status": fields.get("status")}
 
     def update_tree(
         self,
@@ -255,10 +260,14 @@ def test_edge_case_1_oneshot_ai_form_and_workflow_creation(test_setup):
         ConnectionSpec(from_ref="calisan_red_email", to_ref="end"),
     ]
 
+    form = mcp_dummy.tools["create_form_with_ai"](
+        "Çalışan adı soyadı, e-posta ve izin türü içeren Türkçe form",
+        language="tr",
+    )
+
     result = mcp_dummy.tools["build_workflow_bulk"](
         title="Yıllık İzin Talep Süreci",
-        form_prompt="Çalışan adı soyadı, e-posta ve izin türü içeren Türkçe form",
-        form_language="tr",
+        trigger_form_id=form.form_id,
         steps=steps,
         connections=connections,
     )
@@ -441,6 +450,11 @@ def test_edge_case_4_revision_safety_and_restoration(test_setup):
     assert "confirm=true" in preview.hint.lower()
 
     # Confirmed restore
-    restored = mcp_dummy.tools["restore_workflow_revision"](wf_id, revision_id=newest_rev.revision_id, confirm=True)
+    restored = mcp_dummy.tools["restore_workflow_revision"](
+        wf_id,
+        revision_id=newest_rev.revision_id,
+        confirm=True,
+        expected_current_revision_id=preview.current_revision_id,
+    )
     assert restored.restored is True
     assert restored.error is None

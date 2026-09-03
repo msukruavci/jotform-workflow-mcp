@@ -17,6 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from mcp_server.integrations import SupportedWorkflowIntegrationSubType
+
 
 class WorkflowSummary(BaseModel):
     workflow_id: str | None = None
@@ -31,6 +33,11 @@ class WorkflowSummary(BaseModel):
 
 class WorkflowList(BaseModel):
     workflows: list[WorkflowSummary] = Field(default_factory=list)
+    limit: int = 50
+    offset: int = 0
+    count: int = 0
+    has_more: bool = False
+    next_offset: int | None = None
     error: str | None = None
 
 
@@ -69,15 +76,78 @@ class Connection(BaseModel):
     )
 
 
+class EmailStepIncoming(BaseModel):
+    link_id: str | None = None
+    from_step: str | None = None
+    outcome: str | None = None
+
+
+class EmailStepSummary(BaseModel):
+    step_id: str | None = None
+    label: str | None = None
+    to: list[str] = Field(default_factory=list)
+    subject: str | None = None
+    content_present: bool = False
+    content_excerpt: str | None = Field(
+        None,
+        description="Short plain-text email body preview, omitted when empty.",
+    )
+    missing_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Required email fields that are empty in Jotform. If this is not empty, "
+            "the step must not be treated as satisfying a requested email/survey/notification."
+        ),
+    )
+    incoming: list[EmailStepIncoming] = Field(
+        default_factory=list,
+        description="How this email is reached; outcome identifies the approval/task branch.",
+    )
+
+
+class StepEdgeSummary(BaseModel):
+    link_id: str | None = None
+    step_id: str | None = None
+    outcome: str | None = None
+
+
+class StepStateSummary(BaseModel):
+    step_id: str | None = None
+    type: str | None = None
+    label: str | None = None
+    incoming: list[StepEdgeSummary] = Field(default_factory=list)
+    outgoing: list[StepEdgeSummary] = Field(default_factory=list)
+    key_config: dict = Field(
+        default_factory=dict,
+        description=(
+            "Small deterministic config summary for the step type. Avoids raw "
+            "Jotform UI metadata and exposes only fields useful for exact-match decisions."
+        ),
+    )
+    missing_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Important fields missing from this persisted step. If non-empty, "
+            "do not treat the step as satisfying a user's requested action."
+        ),
+    )
+    config_complete: bool = Field(
+        True,
+        description="False when missing_fields is non-empty.",
+    )
+
+
 class WorkflowHealth(BaseModel):
+    """Internal/advisory graph diagnostics, never mutation instructions."""
+
     total_steps: int = 0
     unreachable_steps: list[str] = Field(
         default_factory=list,
-        description="Steps with no path from the start point — they never run",
+        description="Advisory only: steps with no path from start; they may be intentional drafts",
     )
     dead_end_steps: list[str] = Field(
         default_factory=list,
-        description="Steps that are reached but lead nowhere and aren't an end point",
+        description="Advisory only: reached leaf steps; they may intentionally end the draft flow",
     )
     unknown_types: list[str] = Field(
         default_factory=list, description="Step types with no schema on record"
@@ -89,9 +159,9 @@ class WorkflowHealth(BaseModel):
     unconnected_branches: list[str] = Field(
         default_factory=list,
         description=(
-            "Outcomes defined on a branching step but wired to nothing, e.g. "
+            "Advisory only: outcomes defined on a branching step but wired to nothing, e.g. "
             "an if/else whose FALSE path goes nowhere or a task outcome with "
-            "no next step — described as 'step 2 FALSE'"
+            "no next step. Never connect or remove them without an explicit user request."
         ),
     )
     invalid_branch_links: list[str] = Field(
@@ -121,6 +191,20 @@ class WorkflowDetail(BaseModel):
     updated_at: str | None = None
     steps: list[Step] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
+    step_states: list[StepStateSummary] = Field(
+        default_factory=list,
+        description=(
+            "Generic exact-match state summary for all known workflow steps. "
+            "Use this before claiming an externally edited step already satisfies a request."
+        ),
+    )
+    email_steps: list[EmailStepSummary] = Field(
+        default_factory=list,
+        description=(
+            "Compact exact-match summary for email steps: recipients, subject, "
+            "whether body content exists, missing fields, and incoming branch path."
+        ),
+    )
     trigger_form_fields: list[FormField] = Field(
         default_factory=list,
         description=(
@@ -128,10 +212,19 @@ class WorkflowDetail(BaseModel):
             "need a separate field-inspection call after get_workflow."
         ),
     )
-    health: WorkflowHealth | None = None
+    health: WorkflowHealth | None = Field(
+        default=None,
+        exclude=True,
+        description="Internal diagnostics excluded from normal model-facing reads.",
+    )
     diagnostics: dict = Field(
         default_factory=dict,
-        description="Internal notes — e.g. link fields we could not interpret",
+        exclude=True,
+        description="Internal notes excluded from normal model-facing reads.",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Read degradations that must not be interpreted as absent workflow data.",
     )
     error: str | None = None
 
@@ -154,7 +247,7 @@ class WorkflowPreviewData(BaseModel):
     publish_status: str | None = None
     revision_id: str | None = Field(
         None,
-        description="Live snapshot token used as base_revision_id by an editable canvas.",
+        description="Live snapshot token for a later revision-checked bulk mutation.",
     )
     updated_at: str | None = None
     elements: list[dict] = Field(
@@ -165,12 +258,34 @@ class WorkflowPreviewData(BaseModel):
         default_factory=list,
         description="Persisted Workflow links for the native read-only canvas",
     )
+    step_states: list[StepStateSummary] = Field(
+        default_factory=list,
+        description=(
+            "Generic exact-match state summary for all known workflow steps. "
+            "Prefer this over raw elements when deciding whether a requested action already exists."
+        ),
+    )
+    email_steps: list[EmailStepSummary] = Field(
+        default_factory=list,
+        description=(
+            "Compact exact-match summary for email steps. Prefer this over raw "
+            "elements when deciding whether a requested email already exists."
+        ),
+    )
     known_element_ids: list[str] = Field(
         default_factory=list,
         description="Element ids whose types are supported by this server and renderer",
     )
-    health: WorkflowHealth | None = None
-    diagnostics: dict = Field(default_factory=dict)
+    health: WorkflowHealth | None = Field(
+        default=None,
+        exclude=True,
+        description="Internal diagnostics excluded from normal model-facing previews.",
+    )
+    diagnostics: dict = Field(
+        default_factory=dict,
+        exclude=True,
+        description="Internal notes excluded from normal model-facing previews.",
+    )
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
 
@@ -243,12 +358,24 @@ class FormSummary(BaseModel):
 
 class FormList(BaseModel):
     forms: list[FormSummary] = Field(default_factory=list)
+    limit: int = 50
+    offset: int = 0
+    count: int = 0
+    has_more: bool = False
+    next_offset: int | None = None
     error: str | None = None
 
 
 class FormField(BaseModel):
     field_id: str | None = Field(
         None, description="Exact Jotform question ID used in workflow field references."
+    )
+    name: str | None = Field(
+        None,
+        description=(
+            "Exact Jotform unique question name used inside dynamic variables, "
+            "for example {q3_email1}. Prefer this over guessing camelCase labels."
+        ),
     )
     label: str | None = Field(
         None, description="Exact visible form-field label."
@@ -301,14 +428,17 @@ class SchemaField(BaseModel):
     item_fields: dict = Field(default_factory=dict)
 
 
-class StepSchema(BaseModel):
+class StepSchemaItem(BaseModel):
     step_type: str | None = None
     canonical_type: str | None = None
     subtype: str | None = None
     description: str | None = None
     ui_name: str | None = None
     fields: list[SchemaField] = Field(default_factory=list)
-    schemas: dict[str, "StepSchema"] = Field(
+
+
+class StepSchema(StepSchemaItem):
+    schemas: dict[str, StepSchemaItem] = Field(
         default_factory=dict,
         description="Batch result mapping step_type to its schema result",
     )
@@ -325,25 +455,63 @@ class CreateWorkflowResult(BaseModel):
     title: str | None = None
     trigger_form_id: str | None = None
     trigger_form_url: str | None = None
+    status: str | None = Field(
+        None,
+        description="New workflows are created DISABLED until the user explicitly enables them.",
+    )
     error: str | None = None
 
 
 class CreateAIFormResult(BaseModel):
     form_id: str | None = Field(
-        None, description="New form ID to pass to build_workflow_bulk as trigger_form_id."
+        None,
+        description=(
+            "New form ID from this MCP workflow tool. For form-submission workflows, "
+            "pass it to build_workflow_bulk as trigger_form_id. For scheduled workflows "
+            "that assign a form after the schedule starts, pass it as "
+            "workflow_assign_form.formID. Do not substitute an external Jotform form "
+            "plugin result for workflow creation."
+        ),
     )
     form_url: str | None = Field(None, description="Jotform builder URL for the new form.")
     title: str | None = Field(None, description="Generated form title.")
-    summary: str | None = Field(None, description="AI form-generation summary.")
-    questions: dict = Field(
-        default_factory=dict,
-        description="Backward-compatible raw Jotform question map; prefer fields.",
+    generation_mode: Literal["copilot", "fallback"] | None = Field(
+        None, description="Whether Copilot or the public API fallback created the form."
+    )
+    fallback_used: bool = Field(
+        False, description="True when Copilot was unavailable and a simpler fallback form was created."
+    )
+    fallback_reason: str | None = Field(None, description="Why fallback generation was used.")
+    verified: bool = Field(
+        False, description="True when the created form fields were read back from Jotform."
+    )
+    summary: str | None = Field(
+        None,
+        description=(
+            "AI form-generation summary. This does not complete a workflow request; "
+            "continue with build_workflow_bulk when the user asked for a workflow."
+        ),
     )
     fields: list[FormField] = Field(
         default_factory=list,
         description=(
             "Complete normalized field contract for the next build_workflow_bulk call: "
-            "field_id, label, type, required, and options."
+            "field_id, name, label, type, required, and options. Use name inside "
+            "email/task dynamic variables. External Jotform form plugins do not "
+            "provide this workflow-ready contract."
+        ),
+    )
+    next_required_tool: str | None = Field(
+        None,
+        description=(
+            "Usually build_workflow_bulk. Continue the requested workflow instead "
+            "of asking the user what to do."
+        ),
+    )
+    hint: str | None = Field(
+        None,
+        description=(
+            "Concrete next-step guidance for completing the workflow after form creation."
         ),
     )
     error: str | None = None
@@ -355,6 +523,10 @@ class CreateWorkflowWithAIFormResult(BaseModel):
     title: str | None = None
     trigger_form_id: str | None = None
     trigger_form_url: str | None = None
+    status: str | None = Field(
+        None,
+        description="New workflows are created DISABLED until the user explicitly enables them.",
+    )
     form_title: str | None = None
     form_summary: str | None = None
     questions: dict = Field(default_factory=dict)
@@ -419,18 +591,58 @@ class StepSpec(BaseModel):
         description="A unique temporary reference name for this step in the bulk request (e.g. 'approval_1', 'notify_mgr', 'reject_email')."
     )
     type: str = Field(
-        description='From list_step_types, e.g. "workflow_approval", "workflow_send_email".'
+        description=(
+            'From list_step_types, e.g. "workflow_approval", "workflow_send_email". '
+            'If the user asks to add a 3rd-party integration such as Slack, '
+            'WhatsApp, Zendesk, Asana, Google Sheets, or Microsoft Teams, set '
+            'type to "workflow_integration" and create a blank shell step only.'
+        )
+    )
+    subType: SupportedWorkflowIntegrationSubType | None = Field(
+        default=None,
+        description=(
+            "Required when type is workflow_integration. Must be one of the "
+            "supported integration IDs, for example slack, whatsapp, "
+            "whatsapp-business, zendesk, asana, google-sheetsV2, microsoft-teams. "
+            "For 3rd-party integrations, add only a blank shell step: set type "
+            "to workflow_integration, set this subType, and do NOT fill any "
+            "authentication, account, mapping, OAuth, trigger, channel, project, "
+            "workspace, ticket, or message configuration fields. The user will "
+            "click '+ Complete Settings' in the Jotform UI."
+        ),
     )
     config: dict = Field(
         default_factory=dict,
         description=(
-            "Fields for this step type — check get_step_schema. Always provide full draft "
-            "config with realistic role-based draft emails (e.g. 'advisor@university.edu', "
-            "'manager@company.com', '{Email Address}'). For condition terms in build_workflow_bulk, "
-            "prefer the trigger form's visible field label. Known field_id/qid/name values are also accepted; "
-            "the bulk tool resolves them after creating/reading the trigger form "
-            "and refuses ambiguous labels instead of guessing."
+            "Fields for this step type. For common approval/task/email/branch steps, "
+            "use the documented compact configs directly. Draft staff recipients should "
+            "use reserved role placeholders such as 'hr@workflow.invalid' or "
+            "'manager@workflow.invalid' when no real address is provided; applicant/customer "
+            "notifications should use the exact trigger form email field variable tag. "
+            "CRITICAL WARNING for dynamic variables (e.g. in email content or approval tasks): "
+            "NEVER use the question title/label wrapped in braces like '{Employee Name}'. "
+            "ALWAYS use the exact 'name' property (unique name) from the fields/questions list "
+            "returned by create_form_with_ai or get_workflow, like '{employeeName}'. "
+            "When summarizing email content back to the user, refer to those dynamic fields by "
+            "their visible labels instead of exposing raw Jotform tags such as '{q2_textbox0}'. "
+            "For condition terms in build_workflow_bulk, prefer the trigger form's visible "
+            "field label. Known field_id/qid/name values are also accepted; the bulk tool "
+            "resolves them after creating/reading the trigger form and refuses ambiguous "
+            "labels instead of guessing."
+            " For workflow_integration steps, leave config empty or provide only "
+            "a display name; put the integration ID in subType and never include "
+            "auth/config fields."
         )
+    )
+
+
+class StepUpdateSpec(BaseModel):
+    step_id: str = Field(
+        description="Existing numeric step_id from a fresh get_workflow result."
+    )
+    config: dict = Field(
+        default_factory=dict,
+        description="Fields to merge into the existing step configuration.",
     )
 
 
@@ -460,97 +672,77 @@ class ConnectionSpec(BaseModel):
     )
 
 
-class WorkflowCanvasConnectionUpdate(BaseModel):
-    action: Literal["upsert", "delete"] = "upsert"
-    link_id: str | None = Field(
-        None,
-        description="Existing link to replace or delete. Omit when creating a new connection.",
-    )
-    from_ref: str = Field(
-        default="",
-        description="Source step id/ref; required for action=upsert.",
-    )
-    to_ref: str = Field(
-        default="",
-        description="Target step id/ref; required for action=upsert.",
-    )
-    outcome: str = Field(
-        default="",
-        description="Branch outcome label when the source step branches.",
-    )
-
-
-class WorkflowCanvasDiff(BaseModel):
-    """Versioned semantic edit contract for a future editable iframe canvas."""
-
-    added_steps: list[StepSpec] = Field(default_factory=list)
-    deleted_step_ids: list[str] = Field(default_factory=list)
-    updated_connections: list[WorkflowCanvasConnectionUpdate] = Field(
-        default_factory=list,
-        description=(
-            "Connections to create, replace, or delete. Use action=upsert with link_id "
-            "to replace an edge and action=delete with link_id to remove one."
-        ),
-    )
-    base_revision_id: str = Field(
-        min_length=1,
-        description="revision_id from the live canvas snapshot this diff was based on.",
-    )
-    base_updated_at: str | None = Field(
-        None,
-        description="Optional cloud updated_at value for timestamp-based compatibility clients.",
-    )
-
-
-class WorkflowCanvasDiffResult(BaseModel):
-    workflow_id: str | None = None
-    workflow_url: str | None = None
-    applied: bool = False
-    added_steps: dict[str, str] = Field(default_factory=dict)
-    deleted_step_ids: list[str] = Field(default_factory=list)
-    updated_connections_count: int = 0
-    revision_id: str | None = None
-    updated_at: str | None = None
-    conflict: bool = False
-    error: str | None = None
-    hint: str | None = None
-
-
 class BuildWorkflowBulkResult(BaseModel):
     workflow_id: str | None = None
     workflow_url: str | None = None
+    status: str | None = Field(
+        None,
+        description="Live workflow status. Every build_workflow_bulk write leaves the workflow DISABLED.",
+    )
     trigger_form_id: str | None = None
     trigger_form_url: str | None = None
-    trigger_form_fields: list[FormField] = Field(
-        default_factory=list,
-        description=(
-            "Fields/questions from the created or bound trigger form, included "
-            "so callers do not need a separate field-inspection call."
-        ),
-    )
     created_steps: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping from step ref to created Jotform step_id"
     )
+    assigned_forms: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Forms assigned by workflow_assign_form steps. Include these form_url links "
+            "in the final answer, especially for scheduled workflows where the form is "
+            "not the trigger_form_id."
+        ),
+    )
+    updated_steps: list[str] = Field(default_factory=list)
     deleted_steps: list[str] = Field(
         default_factory=list,
         description="List of step IDs that were deleted in this bulk update",
     )
     deleted_links: list[str] = Field(default_factory=list)
+    needs_confirmation: bool = Field(
+        False,
+        description=(
+            "True when a requested destructive update was previewed but not applied "
+            "because it needs an explicit user choice."
+        ),
+    )
+    orphaned_step_ids: list[str] = Field(
+        default_factory=list,
+        description="Downstream step IDs that would become unreachable if the delete is applied.",
+    )
+    orphaned_steps: list[dict] = Field(
+        default_factory=list,
+        description="Labels/types for downstream steps that would become unreachable.",
+    )
+    delete_impacts: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Topology preview for requested step deletes: incoming parents, outgoing "
+            "children, reconnect candidates, and suggested user choices."
+        ),
+    )
     created_links_count: int = 0
+    verified: bool = Field(
+        False,
+        description="True after the persisted workflow graph passes read-back verification.",
+    )
     revision_id: str | None = None
     updated_at: str | None = None
     conflict: bool = False
     current_revision_id: str | None = None
     current_updated_at: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    next_required_tool: str | None = Field(
+        "show_workflow",
+        description="Call show_workflow immediately after this tool to present the visual canvas to the user."
+    )
     error: str | None = None
     hint: str | None = None
 
 
 # --- Layer 4: risky ------------------------------------------------------
-# Destructive tools still carry needs_confirmation. publish_workflow publishes
-# immediately and reports any structural warnings in the same result.
+# Risky tools carry needs_confirmation. publish_workflow previews first, then
+# enables only after explicit confirmation and reports advisory warnings.
 
 class DeleteStepResult(BaseModel):
     step_id: str | None = None
@@ -569,6 +761,12 @@ class DeleteStepResult(BaseModel):
 
 class PublishWorkflowResult(BaseModel):
     workflow_id: str | None = None
+    workflow_url: str | None = None
+    current_status: str | None = None
+    target_status: str = "ENABLED"
+    revision_id: str | None = Field(
+        None, description="Live revision that must be echoed as expected_revision_id when confirming."
+    )
     needs_confirmation: bool = False
     health_warnings: list[str] = Field(
         default_factory=list,
@@ -600,6 +798,10 @@ class RestoreWorkflowRevisionResult(BaseModel):
     target_step_count: int = 0
     target_link_count: int = 0
     current_backup_revision_id: str | None = None
+    current_revision_id: str | None = Field(
+        None,
+        description="Live workflow revision that the restore preview is bound to.",
+    )
     needs_confirmation: bool = False
     restored: bool = False
     error: str | None = None
