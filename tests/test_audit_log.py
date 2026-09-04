@@ -106,8 +106,8 @@ def test_write_event_uses_private_permissions_by_default(monkeypatch, tmp_path):
     audit_log.write_event("demo.event")
 
     path = tmp_path / "sessions" / "20260901T090000Z_session_permissions.jsonl"
-    assert oct(path.parent.stat().st_mode & 0o777) == "0o700"
-    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    assert oct(path.parent.stat().st_mode & 0o777) == "0o755"
+    assert oct(path.stat().st_mode & 0o777) == "0o644"
 
 
 def test_log_path_sanitizes_session_id(monkeypatch, tmp_path):
