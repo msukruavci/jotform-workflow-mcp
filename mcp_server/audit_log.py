@@ -373,10 +373,7 @@ def auto_instrument_module(module, min_duration_ms: float = 0.0):
     import inspect
 
     for name, obj in vars(module).items():
-        if name.startswith("_") and not name.startswith("__"):
-            # Private functions are also instrumented but not dunder
-            pass
-        elif name.startswith("__"):
+        if name.startswith("_"):
             continue
 
         if isinstance(obj, types.FunctionType) and obj.__module__ == module.__name__:
