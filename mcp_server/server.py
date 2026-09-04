@@ -26,8 +26,7 @@ from mcp_server.ui import create_workflow_apps  # noqa: E402
 
 # Auto-instrument all functions in these modules (only log spans taking >= 1.0ms)
 for mod in (
-    building, discovery, feature_requests, reading, risky, templates,
-    jotform_client_mod, tree_builder_mod
+    building, discovery, feature_requests, reading, risky, templates
 ):
     auto_instrument_module(mod, min_duration_ms=1.0)
 
