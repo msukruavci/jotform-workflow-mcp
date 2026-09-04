@@ -173,6 +173,60 @@ def _vertical_edge_crosses(
     return False
 
 
+def _edge_crosses(
+    elements: list[dict],
+    parent_x: float,
+    parent_y: float,
+    candidate_x: float,
+    candidate_y: float,
+    *,
+    ignore_ids: set[str] | None = None,
+    padding: float = 12.0,
+) -> bool:
+    """Return true when the parent-to-child segment runs through a node."""
+    if abs(parent_x - candidate_x) <= 1.0:
+        return _vertical_edge_crosses(
+            elements,
+            candidate_x,
+            parent_y,
+            candidate_y,
+            ignore_ids=ignore_ids,
+            padding=padding,
+        )
+
+    top = min(parent_y, candidate_y)
+    bottom = max(parent_y, candidate_y)
+    if bottom - top <= DEFAULT_ELEMENT_SIZE["height"]:
+        return False
+
+    ignored = ignore_ids or set()
+    delta_y = candidate_y - parent_y
+    for element in elements:
+        if str(element.get("element_id")) in ignored:
+            continue
+        position = _position_of(element)
+        if position is None:
+            continue
+        x, y = position
+        width, height = _size_of(element)
+        node_top = max(top, y + padding)
+        node_bottom = min(bottom, y + height - padding)
+        if node_top >= node_bottom:
+            continue
+
+        x_at_top = parent_x + (candidate_x - parent_x) * (
+            (node_top - parent_y) / delta_y
+        )
+        x_at_bottom = parent_x + (candidate_x - parent_x) * (
+            (node_bottom - parent_y) / delta_y
+        )
+        left = x - padding
+        right = x + width + padding
+        if max(min(x_at_top, x_at_bottom), left) <= min(max(x_at_top, x_at_bottom), right):
+            return True
+    return False
+
+
 def compute_position(
     elements: list[dict],
     after_step_id: str | int | list[str | int] | None,
@@ -491,10 +545,11 @@ def compute_layered_dag_positions(
                 continue
             parent_x = float(parent_pos["x"])
             parent_y = float(parent_pos["y"])
-            if _vertical_edge_crosses(
+            if _edge_crosses(
                 placed,
-                candidate_x,
+                parent_x,
                 parent_y,
+                candidate_x,
                 candidate_y,
                 ignore_ids={parent_id},
             ):
