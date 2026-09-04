@@ -35,7 +35,7 @@ client = JotformClient()
 workflow_apps = create_workflow_apps(client)
 
 def build_server_instructions() -> str:
-    return """
+    instructions = """
 You manage Jotform Workflows. Jotform Cloud is authoritative.
 
 Canonical new-workflow flow:
@@ -60,6 +60,13 @@ Use short English intent and reason values without PII. Do not call publish_work
 
 Use show_workflows only for browsing multiple workflows. Use show_workflow for one workflow and only after all writes are complete. Do not answer the user, ask whether to enable/publish, or summarize the completed workflow until show_workflow has been called. If the user asks for an unsupported step, trigger, integration, or notification channel, explain the limitation or show the closest completed draft. If the user later explicitly asks to enable/publish, start the separate publish_workflow flow. Always include direct workflow_url and form_url/trigger_form_url/assigned_forms[].form_url links in the final answer. The iframe is permanently read-only; there is no Canvas write tool.
 """.strip()
+
+    from mcp_server.schema_registry import get_simplified_schema
+    import json
+    core_types = ["workflow_send_email", "workflow_approval", "workflow_assign_task", "workflow_assign_form"]
+    core_schemas = json.dumps([get_simplified_schema(t) for t in core_types], indent=2)
+    
+    return instructions + f"\n\nHere are the exact JSON schemas for the most common step types. Do NOT invent fields outside these schemas when building steps of these types:\n\n{core_schemas}"
 
 
 SERVER_INSTRUCTIONS = build_server_instructions()
