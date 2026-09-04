@@ -14,7 +14,10 @@ from mcp_server.jotform_client import JotformClient
 from mcp_server.models import WorkflowListUIResult, WorkflowPreviewUIResult
 from mcp_server.tools.reading import read_workflow_list, read_workflow_preview
 
-WORKFLOW_UI_RESOURCE_VERSION = 51
+# Bump this whenever the embedded MCP UI or its CSP contract changes. Clients
+# cache `ui://` resources by URI, so reusing a version can leave an older host
+# unable to load a newly configured settings runtime.
+WORKFLOW_UI_RESOURCE_VERSION = 52
 WORKFLOW_UI_RESOURCE_URI = (
     f"ui://jotform/workflows/v{WORKFLOW_UI_RESOURCE_VERSION}.html"
 )

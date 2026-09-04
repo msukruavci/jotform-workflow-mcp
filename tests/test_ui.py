@@ -84,7 +84,7 @@ def _server():
 
 
 def test_ui_resource_is_registered_with_mcp_app_mime_type():
-    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v51.html"
+    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v52.html"
 
     with patch.dict("os.environ", {"WORKFLOW_SETTINGS_RUNTIME_URL": ""}):
         server = _server()
