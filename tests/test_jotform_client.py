@@ -119,8 +119,12 @@ def test_create_workflow_forces_and_verifies_disabled_status(monkeypatch):
     assert [call[:2] for call in calls] == [
         ("POST", "/workflow"),
         ("PUT", "/workflow/wf_1/updateTree"),
-            ("POST", "/workflow/wf_1"),
+        ("POST", "/workflow/wf_1"),
     ]
+    start_point_update = calls[1][2]["elements"][0]
+    assert start_point_update["action"] == "update"
+    assert start_point_update["elementID"] == 1
+    assert start_point_update["data"]["type"] == "workflow_start_point"
 
 
 def test_create_workflow_reports_id_when_start_point_setup_fails(monkeypatch):

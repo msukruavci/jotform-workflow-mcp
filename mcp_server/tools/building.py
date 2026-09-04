@@ -3243,6 +3243,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             [s_ref for s_ref, _, _ in step_items],
             conn_items,
             start_step_id=start_id,
+            existing_links=existing_links,
         )
 
         for s_ref, s_type, _ in step_items:
@@ -3802,6 +3803,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 )
 
         after_id = after_step_id or None
+        links = None
         if after_id is not None:
             try:
                 links = client.get_links(workflow_id)
@@ -3825,7 +3827,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 )
 
         element_id = tb.next_id([e.get("element_id") for e in elements])
-        position = tb.compute_position(elements, after_id)
+        position = tb.compute_position(elements, after_id, links=links)
         create_entry = tb.build_element_create(step_type, element_id, clean_config, position)
 
         try:

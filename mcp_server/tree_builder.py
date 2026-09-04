@@ -150,7 +150,7 @@ def _vertical_edge_crosses(
     padding: float = 12.0,
 ) -> bool:
     """Return true when a same-lane parent->child edge would run through an existing node."""
-    top = min(parent_y, candidate_y)
+    top = min(parent_y, candidate_y) + DEFAULT_ELEMENT_SIZE["height"] / 2.0
     bottom = max(parent_y, candidate_y)
     if bottom - top <= DEFAULT_ELEMENT_SIZE["height"]:
         return False
@@ -173,11 +173,63 @@ def _vertical_edge_crosses(
     return False
 
 
+def _existing_vertical_edge_segments(
+    elements: list[dict],
+    links: list[dict] | None,
+) -> list[tuple[float, float, float]]:
+    """Return visible vertical portions of existing links as (x, top, bottom)."""
+    elements_by_id = {
+        str(element.get("element_id")): element
+        for element in elements
+        if element.get("element_id") is not None and _position_of(element) is not None
+    }
+    segments = []
+    for link in links or []:
+        data = link.get("data") if isinstance(link.get("data"), dict) else link
+        source = elements_by_id.get(str(data.get("fromElement")))
+        target = elements_by_id.get(str(data.get("toElement")))
+        if source is None or target is None:
+            continue
+        source_x, source_y = _position_of(source)
+        target_x, target_y = _position_of(target)
+        source_width, source_height = _size_of(source)
+        target_width, target_height = _size_of(target)
+        source_center_x = source_x + source_width / 2.0
+        target_center_x = target_x + target_width / 2.0
+        if abs(source_center_x - target_center_x) > 1.0:
+            continue
+        if source_y <= target_y:
+            top, bottom = source_y + source_height, target_y
+        else:
+            top, bottom = target_y + target_height, source_y
+        if bottom > top:
+            segments.append(((source_center_x + target_center_x) / 2.0, top, bottom))
+    return segments
+
+
+def _node_crosses_vertical_edges(
+    segments: list[tuple[float, float, float]],
+    candidate_x: float,
+    candidate_y: float,
+    *,
+    padding: float = 12.0,
+) -> bool:
+    left = candidate_x - padding
+    right = candidate_x + DEFAULT_ELEMENT_SIZE["width"] + padding
+    top = candidate_y - padding
+    bottom = candidate_y + DEFAULT_ELEMENT_SIZE["height"] + padding
+    return any(
+        left <= edge_x <= right and top < edge_bottom and bottom > edge_top
+        for edge_x, edge_top, edge_bottom in segments
+    )
+
+
 def compute_position(
     elements: list[dict],
     after_step_id: str | int | list[str | int] | None,
     *,
     branch_offset: float = 0,
+    links: list[dict] | None = None,
 ) -> dict:
     """
     Where to put a new node.
@@ -192,11 +244,17 @@ def compute_position(
     neighbouring columns, then lower rows.
     """
     positioned = [p for p in (_position_of(e) for e in elements) if p is not None]
+    edge_segments = _existing_vertical_edge_segments(elements, links)
+
+    def slot_is_open(x: float, y: float) -> bool:
+        return not _overlaps(elements, x, y) and not _node_crosses_vertical_edges(
+            edge_segments, x, y
+        )
 
     if not after_step_id:
         base_y = max((y for _, y in positioned), default=0)
         cand_y = base_y + (STEP_Y if positioned else 0)
-        while _overlaps(elements, 0, cand_y):
+        while not slot_is_open(0, cand_y):
             cand_y += STEP_Y
         return {"x": 0, "y": cand_y}
 
@@ -218,7 +276,7 @@ def compute_position(
                 y = base_y + row * STEP_Y
                 for offset in x_offsets:
                     x = base_x + offset
-                    if not _overlaps(elements, x, y):
+                    if slot_is_open(x, y):
                         return {"x": round(x, 1), "y": round(y, 1)}
             return {"x": round(base_x, 1), "y": round(base_y, 1)}
         after_step_id = after_step_id[0] if after_step_id else None
@@ -230,7 +288,7 @@ def compute_position(
     if anchor_pos is None:
         base_y = max((y for _, y in positioned), default=0)
         cand_y = base_y + (STEP_Y if positioned else 0)
-        while _overlaps(elements, 0, cand_y):
+        while not slot_is_open(0, cand_y):
             cand_y += STEP_Y
         return {"x": 0, "y": cand_y}
 
@@ -246,7 +304,7 @@ def compute_position(
         y = base_y + row * STEP_Y
         for offset in x_offsets:
             x = base_x + offset
-            if not _overlaps(elements, x, y):
+            if slot_is_open(x, y):
                 return {"x": round(x, 1), "y": round(y, 1)}
 
     return {"x": round(base_x, 1), "y": round(base_y, 1)}
@@ -295,6 +353,7 @@ def compute_layered_dag_positions(
     connections: list[tuple[str, str, str]],
     *,
     start_step_id: str | int = 1,
+    existing_links: list[dict] | None = None,
 ) -> dict[str, dict]:
     """
     Compute holistic positions for a batch of new workflow steps.
@@ -324,6 +383,17 @@ def compute_layered_dag_positions(
     existing_positions = [p for p in (_position_of(e) for e in elements) if p is not None]
     max_existing_y = max((y for _, y in existing_positions), default=start_y)
 
+    existing_anchors = {
+        str(element.get("element_id")): element
+        for element in elements
+        if (
+            str(element.get("element_id", "")).isdigit()
+            and str(element.get("element_id")) != str(start_step_id)
+            and _position_of(element) is not None
+        )
+    }
+    anchor_refs = set(existing_anchors)
+
     parents: dict[str, list[str]] = {ref: [] for ref in ordered_refs}
     children: dict[str, list[str]] = {"start": []}
     edge_labels: dict[tuple[str, str], str] = {}
@@ -334,7 +404,7 @@ def compute_layered_dag_positions(
         to_ref = _canonical_layout_ref(raw_to)
         if to_ref not in step_set:
             continue
-        if from_ref in step_set or from_ref == "start":
+        if from_ref in step_set or from_ref == "start" or from_ref in anchor_refs:
             if from_ref not in children:
                 children[from_ref] = []
             if to_ref not in children[from_ref]:
@@ -379,6 +449,7 @@ def compute_layered_dag_positions(
     topo.extend(ref for ref in ordered_refs if ref not in topo)
 
     y_by_ref: dict[str, float] = {"start": start_y}
+    y_by_ref.update({ref: _position_of(element)[1] for ref, element in existing_anchors.items()})
     for ref in topo:
         parent_ys = [
             y_by_ref[parent]
@@ -412,7 +483,10 @@ def compute_layered_dag_positions(
         width_cache[cache_key] = width
         return width
 
-    lane_by_ref: dict[str, float] = {}
+    lane_by_ref: dict[str, float] = {
+        ref: (_position_of(element)[0] - start_x) / BRANCH_X
+        for ref, element in existing_anchors.items()
+    }
 
     def assign_children(ref: str, center_lane: float) -> None:
         child_refs = [child for child in ordered_children(ref) if child in step_set]
@@ -433,6 +507,9 @@ def compute_layered_dag_positions(
         lane_by_ref[ref] = center_lane
         assign_children(ref, center_lane)
 
+    for ref in existing_anchors:
+        assign_children(ref, lane_by_ref[ref])
+
     root_refs = []
     for child in ordered_children("start"):
         if child in step_set and child not in root_refs:
@@ -451,16 +528,7 @@ def compute_layered_dag_positions(
     for ref in topo:
         parent_lanes = [lane_by_ref[parent] for parent in parents.get(ref, []) if parent in lane_by_ref]
         if len(parent_lanes) > 1:
-            weights = [_semantic_branch_weight(edge_labels.get((p, ref), "")) for p in parents.get(ref, [])]
-            avg_weight = sum(weights) / len(weights) if weights else 0
-            
-            if avg_weight > 0.3:
-                lane_by_ref[ref] = max(parent_lanes) + 1.0
-            elif avg_weight < -0.3:
-                lane_by_ref[ref] = min(parent_lanes) - 1.0
-            else:
-                lane_by_ref[ref] = sum(parent_lanes) / len(parent_lanes)
-                
+            lane_by_ref[ref] = sum(parent_lanes) / len(parent_lanes)
             assign_children(ref, lane_by_ref[ref])
         elif ref not in lane_by_ref:
             lane_by_ref[ref] = max(lane_by_ref.values(), default=0.0) + 1.0
@@ -475,6 +543,7 @@ def compute_layered_dag_positions(
     }
 
     placed = list(elements)
+    existing_edge_segments = _existing_vertical_edge_segments(elements, existing_links)
     final_positions: dict[str, dict] = {}
 
     def placed_parent_position(ref: str) -> tuple[dict | None, str | None]:
@@ -482,6 +551,9 @@ def compute_layered_dag_positions(
             return ({"x": start_x, "y": start_y}, str(start_step_id))
         if ref in final_positions:
             return final_positions[ref], f"layout:{ref}"
+        if ref in existing_anchors:
+            x, y = _position_of(existing_anchors[ref])
+            return {"x": x, "y": y}, ref
         return None, None
 
     def edge_crosses_placed(ref: str, candidate_x: float, candidate_y: float) -> bool:
@@ -491,6 +563,8 @@ def compute_layered_dag_positions(
                 continue
             parent_x = float(parent_pos["x"])
             parent_y = float(parent_pos["y"])
+            if abs(parent_x - candidate_x) > 1.0:
+                continue
             if _vertical_edge_crosses(
                 placed,
                 candidate_x,
@@ -519,7 +593,11 @@ def compute_layered_dag_positions(
         x = base_x
         for offset in x_offsets:
             candidate_x = base_x + offset
-            if not _overlaps(placed, candidate_x, y) and not edge_crosses_placed(ref, candidate_x, y):
+            if (
+                not _overlaps(placed, candidate_x, y)
+                and not _node_crosses_vertical_edges(existing_edge_segments, candidate_x, y)
+                and not edge_crosses_placed(ref, candidate_x, y)
+            ):
                 x = candidate_x
                 break
         pos = {"x": round(x, 1), "y": round(y, 1)}

@@ -583,7 +583,11 @@ class JotformClient:
             try:
                 self.update_tree(
                     str(workflow_id),
-                    elements=[{"data": start_point_data}],
+                    elements=[{
+                        "action": "update",
+                        "elementID": 1,
+                        "data": start_point_data,
+                    }],
                     links=[]
                 )
             except JotformAPIError as error:

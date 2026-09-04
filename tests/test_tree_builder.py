@@ -115,6 +115,55 @@ def test_layered_dag_layout_centers_merge_below_lowest_parent():
     assert positions["final_email"]["y"] == lowest_parent_y + tb.STEP_Y
 
 
+def test_layered_dag_layout_anchors_new_step_below_existing_numeric_parent():
+    elements = [
+        {"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}},
+        {"element_id": 7, "position": {"x": 380, "y": 440}},
+    ]
+
+    positions = tb.compute_layered_dag_positions(
+        elements,
+        ["new_step"],
+        [("7", "new_step", "")],
+    )
+
+    assert positions["new_step"] == {"x": 380.0, "y": 440 + tb.STEP_Y}
+
+
+def test_layered_dag_layout_does_not_place_node_over_existing_vertical_edge():
+    elements = [
+        {"element_id": 1, "type": "workflow_start_point", "position": {"x": -760, "y": 0}},
+        {"element_id": 7, "position": {"x": 0, "y": -220}},
+        {"element_id": 8, "position": {"x": 0, "y": 440}},
+        {"element_id": 9, "position": {"x": 0, "y": 0}},
+    ]
+
+    positions = tb.compute_layered_dag_positions(
+        elements,
+        ["new_step"],
+        [("9", "new_step", "")],
+        existing_links=[{"fromElement": 7, "toElement": 8}],
+    )
+
+    assert positions["new_step"]["x"] != 0
+
+
+def test_layered_dag_layout_centers_merge_between_existing_numeric_parents():
+    elements = [
+        {"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}},
+        {"element_id": 7, "position": {"x": -380, "y": 220}},
+        {"element_id": 8, "position": {"x": 760, "y": 440}},
+    ]
+
+    positions = tb.compute_layered_dag_positions(
+        elements,
+        ["merge"],
+        [("7", "merge", ""), ("8", "merge", "")],
+    )
+
+    assert positions["merge"] == {"x": 190.0, "y": 440 + tb.STEP_Y}
+
+
 def test_layered_dag_layout_moves_merge_to_avoid_vertical_edge_crossing():
     elements = [{"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}}]
     positions = tb.compute_layered_dag_positions(
