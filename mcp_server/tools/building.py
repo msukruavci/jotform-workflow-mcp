@@ -2926,8 +2926,8 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         # 4. Fetch current workflow elements & links
         if isinstance(lock_snapshot, dict) and isinstance(lock_snapshot.get("elements"), list):
-            existing_elements = [e for e in lock_snapshot.get("elements", []) if isinstance(e, dict)]
-            existing_links = [l for l in (lock_snapshot.get("links") or []) if isinstance(l, dict)]
+            existing_elements = deepcopy([e for e in lock_snapshot.get("elements", []) if isinstance(e, dict)])
+            existing_links = deepcopy([l for l in (lock_snapshot.get("links") or []) if isinstance(l, dict)])
         else:
             try:
                 existing_elements = client.get_elements(workflow_id)
