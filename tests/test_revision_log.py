@@ -35,6 +35,17 @@ def test_capture_and_list_revisions(monkeypatch, tmp_path):
     assert summaries[0]["link_count"] == 1
 
 
+def test_capture_revision_uses_private_permissions(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCP_REVISION_LOG_DIR", str(tmp_path))
+    client = FakeClient({"workflow": {"id": "wf_1"}, "elements": [], "links": []})
+
+    revision_log.capture_workflow_revision(client, "wf_1", "before update")
+
+    path = tmp_path / "wf_1.jsonl"
+    assert oct(path.parent.stat().st_mode & 0o777) == "0o700"
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+
+
 def test_capture_hydrates_full_element_metadata(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_REVISION_LOG_DIR", str(tmp_path))
     client = FakeClient({
@@ -56,6 +67,31 @@ def test_capture_hydrates_full_element_metadata(monkeypatch, tmp_path):
     assert element["subject"] == "Hi"
     assert element["content"] == "Full email body"
     assert element["to"][0]["value"] == "{q3_email1}"
+
+
+def test_capture_uses_one_full_combined_read_when_supported(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCP_REVISION_LOG_DIR", str(tmp_path))
+
+    class FullCombinedClient:
+        def __init__(self):
+            self.calls = []
+
+        def get_workflow_combined(self, workflow_id, *, fetch_essential=True):
+            self.calls.append(fetch_essential)
+            return {
+                "workflow": {"id": workflow_id},
+                "elements": [{"element_id": "2", "content": "Full body"}],
+                "links": [],
+            }
+
+        def get_element(self, workflow_id, element_id):
+            raise AssertionError("N+1 hydration should not run")
+
+    client = FullCombinedClient()
+    record = revision_log.capture_workflow_revision(client, "wf_1", "before update")
+
+    assert client.calls == [False]
+    assert record["snapshot"]["elements"][0]["content"] == "Full body"
 
 
 def test_load_latest_or_specific_revision(monkeypatch, tmp_path):

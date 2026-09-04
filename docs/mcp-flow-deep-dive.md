@@ -222,6 +222,12 @@ MCP_AUDIT_SESSION_ID      optional fixed session id
 MCP_AUDIT_LOG_DIR         default mcp_server/logs
 MCP_AUDIT_LOG_PATH        explicit single log file override
 MCP_AUDIT_MAX_FIELD_CHARS default 12000
+MCP_AUDIT_DIR_MODE        default 755, keep dashboard container-readable
+MCP_AUDIT_FILE_MODE       default 644, set 600 only if no external dashboard reads logs
+MCP_AUDIT_INACTIVITY_TIMEOUT_SEC default 60, starts a new fallback session after idle gaps
+MCP_AUDIT_LIST_TOOLS_SESSION_BOUNDARY_GAP_SEC default 2, splits fallback sessions on a new tool handshake
+MCP_REVISION_DIR_MODE     default 755
+MCP_REVISION_FILE_MODE    default 644
 ```
 
 ## 5. Revision Flow
@@ -511,22 +517,16 @@ Pydantic result schemas listed in the next section.
 | --- | --- |
 | `list_step_types` | `category=""` |
 | `get_step_schema` | `step_type` |
-| `list_workflows` | none |
+| `list_workflows` | `limit=50`, `offset=0` |
 | `get_workflow` | `workflow_id` |
 | `get_step_details` | `workflow_id`, `step_id` |
 | `list_workflow_revisions` | `workflow_id`, `limit=10` |
-| `inspect_workflow_gaps` | `workflow_id` |
-| `list_forms` | none |
-| `get_form_fields` | `form_id` |
+| `list_forms` | `limit=50`, `offset=0`, `status=""` |
 | `create_form_with_ai` | `prompt`, `form_type="classic"`, `language="en"`, `intent=""`, `reason=""` |
-| `create_workflow` | `title`, `trigger_form_id=""`, `allow_without_trigger=false`, `intent=""`, `reason=""` |
-| `create_workflow_with_ai_form` | `title`, `form_prompt`, `form_type="classic"`, `language="en"`, `intent=""`, `reason=""` |
-| `add_step` | `workflow_id`, `step_type`, `config`, `after_step_id=""`, `allow_duplicate=false`, `intent=""`, `reason=""` |
-| `connect_steps` | `workflow_id`, `from_step_id`, `to_step_id`, `outcome=""`, `intent=""`, `reason=""` |
-| `disconnect_steps` | `workflow_id`, `link_id`, `intent=""`, `reason=""` |
-| `update_step` | `workflow_id`, `step_id`, `config`, `intent=""`, `reason=""` |
-| `delete_step` | `workflow_id`, `step_id`, `confirm=false`, `intent=""`, `reason=""` |
-| `publish_workflow` | `workflow_id`, `confirm=false`, `intent=""`, `reason=""` |
+| `build_workflow_bulk` | `workflow_id`, `steps`, `step_updates`, `connections`, delete/lock fields, `title`, `trigger_form_id`, `intent`, `reason` |
+| `show_workflows` | `limit=50`, `offset=0` |
+| `show_workflow` | `workflow_id` |
+| `publish_workflow` | `workflow_id`, `confirm=false`, `expected_revision_id=""`, `intent=""`, `reason=""` |
 | `restore_workflow_revision` | `workflow_id`, `revision_id=""`, `confirm=false`, `intent=""`, `reason=""` |
 | `delete_workflow` | `workflow_id`, `confirm=false`, `confirm_title=""`, `intent=""`, `reason=""` |
 
@@ -584,15 +584,23 @@ sequenceDiagram
     participant C as ChatGPT
     participant MCP as MCP tool
     participant API as Jotform API
-    C->>MCP: create_workflow_with_ai_form(title, form_prompt)
+    opt Request lacks detail
+        C->>MCP: search_workflow_templates(English query, top_k=1)
+        MCP-->>C: compact blueprint + suggested fields
+    end
+    C->>MCP: create_form_with_ai(prompt)
     MCP->>API: POST /workflow/copilot/createWorkflowForm
-    API-->>MCP: form_id + questions
+    API-->>MCP: form_id + normalized fields
+    C->>MCP: build_workflow_bulk(title, trigger_form_id, steps, connections)
+    MCP->>API: validate form fields
     MCP->>API: POST /workflow
     API-->>MCP: workflow_id
     MCP->>API: POST /workflow/{id}/setResource
     MCP->>API: PUT /workflow/{id}/updateTree element 1
     MCP->>API: GET /workflow/{id}/elements/1
-    MCP-->>C: workflow_url + trigger_form_url + questions
+    MCP->>API: PUT /workflow/{id}/updateTree
+    MCP-->>C: workflow_url + trigger_form_url + created step ids
+    C->>MCP: show_workflow(workflow_id)
 ```
 
 ### Add Email Step

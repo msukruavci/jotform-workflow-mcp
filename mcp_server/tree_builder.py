@@ -28,14 +28,15 @@ from __future__ import annotations
 
 import re
 
+from mcp_server import audit_log
 from mcp_server import schema_registry
+from mcp_server.integrations import SUPPORTED_WORKFLOW_INTEGRATION_SUBTYPES
 
 # The one payload shape gap 2 confirmed works for any link, regardless of
 # what the two ends actually are. Port names are cosmetic (server rewrites
 # them); `type` is not, so it is a constant, never a parameter.
 LINK_DEFAULTS = {
     "type": "default-link",
-    "points": [{"a": "1"}],
     "fromPortName": "DYNAMIC_BOTTOM_1_Out",
     "toPortName": "DYNAMIC_TOP_1_In",
 }
@@ -135,6 +136,39 @@ def _overlaps(elements: list[dict], candidate_x: float, candidate_y: float, padd
             and cand_y < elem_y + elem_h
             and cand_y + new_height > elem_y
         ):
+            return True
+    return False
+
+
+def _vertical_edge_crosses(
+    elements: list[dict],
+    candidate_x: float,
+    parent_y: float,
+    candidate_y: float,
+    *,
+    ignore_ids: set[str] | None = None,
+    padding: float = 12.0,
+) -> bool:
+    """Return true when a same-lane parent->child edge would run through an existing node."""
+    top = min(parent_y, candidate_y)
+    bottom = max(parent_y, candidate_y)
+    if bottom - top <= DEFAULT_ELEMENT_SIZE["height"]:
+        return False
+
+    ignored = ignore_ids or set()
+    for element in elements:
+        if str(element.get("element_id")) in ignored:
+            continue
+        position = _position_of(element)
+        if position is None:
+            continue
+        x, y = position
+        width, height = _size_of(element)
+        left = x - padding
+        right = x + width + padding
+        node_top = y + padding
+        node_bottom = y + height - padding
+        if left <= candidate_x <= right and node_top > top and node_bottom < bottom:
             return True
     return False
 
@@ -433,11 +467,54 @@ def compute_layered_dag_positions(
 
     placed = list(elements)
     final_positions: dict[str, dict] = {}
+
+    def placed_parent_position(ref: str) -> tuple[dict | None, str | None]:
+        if ref == "start":
+            return ({"x": start_x, "y": start_y}, str(start_step_id))
+        if ref in final_positions:
+            return final_positions[ref], f"layout:{ref}"
+        return None, None
+
+    def edge_crosses_placed(ref: str, candidate_x: float, candidate_y: float) -> bool:
+        for parent in parents.get(ref, []):
+            parent_pos, parent_id = placed_parent_position(parent)
+            if parent_pos is None or parent_id is None:
+                continue
+            parent_x = float(parent_pos["x"])
+            parent_y = float(parent_pos["y"])
+            if abs(parent_x - candidate_x) > 1.0:
+                continue
+            if _vertical_edge_crosses(
+                placed,
+                candidate_x,
+                parent_y,
+                candidate_y,
+                ignore_ids={parent_id},
+            ):
+                return True
+        return False
+
     for ref in sorted(ordered_refs, key=lambda item: (raw_positions[item]["y"], raw_positions[item]["x"])):
-        x = raw_positions[ref]["x"]
+        base_x = raw_positions[ref]["x"]
         y = raw_positions[ref]["y"]
-        while _overlaps(placed, x, y):
-            x += BRANCH_X
+        ref_parents = parents.get(ref, [])
+        if len(ref_parents) == 1:
+            parent = ref_parents[0]
+            if (
+                parent in final_positions
+                and parent in raw_positions
+                and abs(raw_positions[parent]["x"] - base_x) <= 1.0
+            ):
+                base_x = final_positions[parent]["x"]
+        x_offsets = [0.0]
+        for column in range(1, 100):
+            x_offsets.extend([-column * BRANCH_X, column * BRANCH_X])
+        x = base_x
+        for offset in x_offsets:
+            candidate_x = base_x + offset
+            if not _overlaps(placed, candidate_x, y) and not edge_crosses_placed(ref, candidate_x, y):
+                x = candidate_x
+                break
         pos = {"x": round(x, 1), "y": round(y, 1)}
         final_positions[ref] = pos
         placed.append({
@@ -521,6 +598,34 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
             by_name["senderName"] = {**from_name_field, "name": "senderName"}
     clean: dict = {}
     warnings: list[str] = []
+
+    if canonical_type == "workflow_integration":
+        subtype = str(config.get("subType") or "").strip()
+        if not subtype:
+            raise ValidationError(
+                "workflow_integration requires subType. Use one supported integration ID "
+                "and leave authentication/settings blank."
+            )
+        if subtype not in SUPPORTED_WORKFLOW_INTEGRATION_SUBTYPES:
+            raise ValidationError(
+                f"Unsupported workflow integration subType {subtype!r}. "
+                f"Allowed values: {SUPPORTED_WORKFLOW_INTEGRATION_SUBTYPES}"
+            )
+        clean = {
+            "name": str(config.get("name") or subtype).strip(),
+            "subType": subtype,
+            "actionType": "",
+            "integrationAccountID": "",
+            "integrationID": "",
+            "internalFormID": "",
+            "mode": "",
+            "responseMap": [],
+        }
+        allowed_shell_fields = set(clean)
+        for key in config:
+            if key not in allowed_shell_fields and key not in ("type", "element_id", "id", "x", "y", "position"):
+                warnings.append(f"workflow_integration shell ignored config field '{key}'")
+        return clean, warnings
 
     for key, value in (config or {}).items():
         if key in ("x", "y", "position", "type", "element_id", "id"):
@@ -654,8 +759,8 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
     if not isinstance(outcomes, list) or not outcomes:
         raise ValidationError(
             "workflow_conditional_branch.outcomes must be a non-empty list. "
-            "Use get_form_fields first, then provide at least one branch with "
-            "conditionTerms using real form field ids."
+            "Use fields from create_form_with_ai or a fresh get_workflow, then "
+            "provide at least one branch with conditionTerms using real form field ids."
         )
 
     normalized = []
@@ -676,7 +781,7 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
             raise ValidationError(
                 f"Branch '{branch_name}' needs at least one conditionTerms "
                 "entry. Do not create CUSTOM branches with conditionTerms=[]. "
-                "Call get_form_fields and use a real field id, operator, and value."
+                "Use a visible trigger form field label or a real field id, operator, and value."
             )
         if terms is None:
             terms = []
@@ -694,7 +799,7 @@ def _validate_conditional_branch_outcomes(outcomes) -> list[dict]:
             if not field:
                 raise ValidationError(
                     f"Branch '{branch_name or condition_value}' conditionTerms[{term_idx}] needs field. "
-                    "Use a field_id returned by get_form_fields."
+                    "Use a visible trigger form field label or a field_id from trigger_form_fields."
                 )
             if not operator:
                 raise ValidationError(
@@ -784,6 +889,7 @@ def build_link_create(link_id: int, from_id: int | str, to_id: int | str) -> dic
         "link_id": link_id,
         "fromElement": from_id,
         "toElement": to_id,
+        "points": [{"a": "1"}],
         **LINK_DEFAULTS,
     }
     return {"action": "create", "linkID": link_id, "data": data}
@@ -962,3 +1068,21 @@ def build_outcome_update(source_element: dict, outcome_id, link_id: int | None) 
             pass
         updated.append({**outcome, "linkID": link_id} if current_id == wanted_id else outcome)
     return build_element_update(source_element.get("element_id"), {"outcomes": updated})
+
+
+for _traced_helper_name in (
+    "compute_position",
+    "compute_layered_dag_positions",
+    "validate_config",
+    "_validate_approval_outcomes",
+    "_validate_task_outcomes",
+    "_validate_conditional_branch_outcomes",
+    "build_element_create",
+    "build_element_update",
+    "build_link_create",
+    "build_link_label_update",
+    "build_link_delete",
+    "build_outcome_clears_for_links",
+    "build_outcome_update",
+):
+    globals()[_traced_helper_name] = audit_log.trace_function(globals()[_traced_helper_name])

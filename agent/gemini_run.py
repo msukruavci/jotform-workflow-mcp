@@ -73,60 +73,103 @@ SYSTEM_PROMPT = (Path(__file__).parent / "system_prompt.md").read_text()
 JSON_STRING_PARAMS = {"config"}
 
 
+def _clean_schema_node(node: Any, defs: dict[str, Any]) -> Any:
+    if not isinstance(node, dict):
+        return node
+    if "$ref" in node:
+        ref_name = node["$ref"].split("/")[-1]
+        target = defs.get(ref_name, {})
+        return _clean_schema_node(target, defs)
+
+    clean: dict[str, Any] = {}
+    for k, v in node.items():
+        if k in ("title", "default", "additionalProperties", "$defs"):
+            continue
+        if k == "properties" and isinstance(v, dict):
+            props = {}
+            for pk, pv in v.items():
+                if pk in JSON_STRING_PARAMS:
+                    props[pk] = {
+                        "type": "string",
+                        "description": (
+                            "A JSON object, encoded as a string. Example: "
+                            '{"subject": "Approved", "to": []}. '
+                            "Call get_step_schema first to see which keys are valid "
+                            "for this step type."
+                        ),
+                    }
+                else:
+                    props[pk] = _clean_schema_node(pv, defs)
+            clean["properties"] = props
+        elif k == "items" and isinstance(v, dict):
+            clean["items"] = _clean_schema_node(v, defs)
+        elif k == "required" and isinstance(v, (list, tuple)):
+            clean["required"] = list(v)
+        else:
+            clean[k] = v
+
+    if clean.get("type") == "object" and not clean.get("properties"):
+        clean["type"] = "string"
+        clean["description"] = (clean.get("description", "") + " (JSON object encoded as string or dict)").strip()
+    return clean
+
+
 def _to_gemini_schema(schema: dict) -> dict:
     """
     MCP's JSON Schema -> the OpenAPI subset Gemini accepts.
 
-    Drops what Gemini doesn't use (`title`, `additionalProperties`) and
-    rewrites free-form objects into JSON strings. `default` is dropped too
-    — Gemini's subset doesn't carry it, and a parameter that's simply
-    absent from `required` already reads as optional.
+    Resolves $defs/$ref recursively, drops unsupported fields (title, default, additionalProperties),
+    and converts free-form/empty object parameters to valid typed declarations.
     """
-    properties = {}
-    for name, prop in (schema.get("properties") or {}).items():
-        if name in JSON_STRING_PARAMS:
-            properties[name] = {
-                "type": "string",
-                "description": (
-                    "A JSON object, encoded as a string. Example: "
-                    '{"subject": "Approved", "to": []}. '
-                    "Call get_step_schema first to see which keys are valid "
-                    "for this step type."
-                ),
-            }
-            continue
-
-        clean = {k: v for k, v in prop.items()
-                 if k not in ("title", "default", "additionalProperties")}
-        clean.setdefault("type", "string")
-        properties[name] = clean
-
-    out: dict = {"type": "object", "properties": properties}
-    if schema.get("required"):
-        out["required"] = list(schema["required"])
+    defs = schema.get("$defs") or {}
+    out = _clean_schema_node(schema, defs)
+    if not isinstance(out, dict):
+        out = {"type": "object", "properties": {}}
+    out.setdefault("type", "object")
     return out
 
 
 def _parse_json_params(name: str, args: dict) -> tuple[dict, str | None]:
-    """Turn the JSON-string params back into real dicts. Returns (args, error)."""
+    """Turn JSON-string params back into real dicts. Returns (args, error)."""
     parsed = dict(args)
     for key in JSON_STRING_PARAMS:
         value = parsed.get(key)
-        if not isinstance(value, str):
-            continue
-        if not value.strip():
-            parsed[key] = {}
-            continue
-        try:
-            decoded = json.loads(value)
-        except json.JSONDecodeError as e:
-            return parsed, (
-                f"`{key}` was not valid JSON ({e}). Send it as a JSON object "
-                f'encoded in a string, e.g. {{"subject": "Approved"}}.'
-            )
-        if not isinstance(decoded, dict):
-            return parsed, f"`{key}` must be a JSON object, got {type(decoded).__name__}."
-        parsed[key] = decoded
+        if isinstance(value, str):
+            if not value.strip():
+                parsed[key] = {}
+            else:
+                try:
+                    parsed[key] = json.loads(value)
+                except json.JSONDecodeError as e:
+                    return parsed, f"`{key}` was not valid JSON ({e})."
+
+    # Also handle steps[].config if emitted as stringified JSON
+    if "steps" in parsed and isinstance(parsed["steps"], list):
+        cleaned_steps = []
+        for s in parsed["steps"]:
+            if isinstance(s, dict):
+                s_dict = dict(s)
+                if "config" in s_dict and isinstance(s_dict["config"], str):
+                    val = s_dict["config"].strip()
+                    if not val:
+                        s_dict["config"] = {}
+                    else:
+                        try:
+                            s_dict["config"] = json.loads(val)
+                        except json.JSONDecodeError as e:
+                            return parsed, f"Step '{s_dict.get('ref')}' config was not valid JSON ({e})."
+                cleaned_steps.append(s_dict)
+            else:
+                cleaned_steps.append(s)
+        parsed["steps"] = cleaned_steps
+    if "step_updates" in parsed and isinstance(parsed["step_updates"], list):
+        for update in parsed["step_updates"]:
+            if isinstance(update, dict) and isinstance(update.get("config"), str):
+                try:
+                    update["config"] = json.loads(update["config"])
+                except json.JSONDecodeError as error:
+                    return parsed, f"Step update config was not valid JSON ({error})."
+
     return parsed, None
 
 
@@ -142,7 +185,7 @@ async def build_tool_declarations() -> list[dict]:
     ]
 
 
-async def run_tool(name: str, args: dict) -> str:
+async def run_tool(name: str, args: dict, session_id: str | None = None) -> str:
     args, error = _parse_json_params(name, args)
     if error:
         # Returned as a tool result, not raised — the model reads it and
@@ -150,12 +193,16 @@ async def run_tool(name: str, args: dict) -> str:
         return json.dumps({"error": error})
 
     try:
-        result = await mcp.call_tool(name, args)
+        context = {"session_id": session_id} if session_id else None
+        result = await mcp.call_tool(name, args, context)
     except Exception as e:  # noqa: BLE001
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
 
     structured = getattr(result, "structured_content", None)
     if structured is not None:
+        if name == "show_workflow":
+            from agent.run import _model_result
+            structured = _model_result(name, structured)
         return json.dumps(structured, ensure_ascii=False)
 
     parts = [getattr(b, "text", None) for b in (getattr(result, "content", None) or [])]
@@ -292,7 +339,9 @@ async def converse(client, tools: list[dict], user_text: str,
         for call in calls:
             print(f"  [tool] {call.name}({json.dumps(call.arguments, ensure_ascii=False)[:120]})")
             t0 = time.perf_counter()
-            output = await run_tool(call.name, call.arguments or {})
+            output = await run_tool(
+                call.name, call.arguments or {}, (trace or {}).get("session_id")
+            )
             duration_ms = (time.perf_counter() - t0) * 1000
             preview = output[:150].replace("\n", " ")
             print(f"  [result] {preview}{'...' if len(output) > 150 else ''}")
@@ -328,14 +377,30 @@ async def main() -> int:
         print("GEMINI_API_KEY is not set — add it to .env")
         return 1
 
+    from agent import cost, logging_
+    import uuid
+
     client = genai.Client()
     tools = await build_tool_declarations()
-    print(f"{len(tools)} tools loaded, profile={current_profile()}, model={MODEL}\n")
+    session_id = str(uuid.uuid4())[:8]
+    print(f"{len(tools)} tools loaded, surface={current_profile()}, model={MODEL}, session={session_id}\n")
 
     previous_id: str | None = None
 
     if len(sys.argv) > 1:
-        await converse(client, tools, " ".join(sys.argv[1:]), previous_id)
+        question = " ".join(sys.argv[1:])
+        trace: dict = {"session_id": session_id}
+        t0 = time.perf_counter()
+        await converse(client, tools, question, previous_id, trace=trace)
+        duration_ms = (time.perf_counter() - t0) * 1000
+        logging_.log_turn(
+            session_id=session_id, provider="gemini", model=MODEL,
+            question=question, answer=trace.get("answer", ""),
+            tool_calls=trace.get("tool_calls", []),
+            input_tokens=trace.get("input_tokens"), output_tokens=trace.get("output_tokens"),
+            cost_usd=cost.estimate_cost(MODEL, trace.get("input_tokens"), trace.get("output_tokens")),
+            duration_ms=duration_ms, error=trace.get("error"),
+        )
         return 0
 
     while True:
@@ -346,7 +411,18 @@ async def main() -> int:
             return 0
         if user_input.lower() in ("exit", "quit", ""):
             return 0
-        previous_id = await converse(client, tools, user_input, previous_id)
+        trace = {"session_id": session_id}
+        t0 = time.perf_counter()
+        previous_id = await converse(client, tools, user_input, previous_id, trace=trace)
+        duration_ms = (time.perf_counter() - t0) * 1000
+        logging_.log_turn(
+            session_id=session_id, provider="gemini", model=MODEL,
+            question=user_input, answer=trace.get("answer", ""),
+            tool_calls=trace.get("tool_calls", []),
+            input_tokens=trace.get("input_tokens"), output_tokens=trace.get("output_tokens"),
+            cost_usd=cost.estimate_cost(MODEL, trace.get("input_tokens"), trace.get("output_tokens")),
+            duration_ms=duration_ms, error=trace.get("error"),
+        )
 
 
 if __name__ == "__main__":

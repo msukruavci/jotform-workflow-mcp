@@ -6,13 +6,22 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator
 
-_FIELDS = ("task_id", "session_id", "turn_id", "model_step_id", "trace_id", "span_id", "parent_span_id")
+_FIELDS = ("task_id", "session_id", "turn_id", "model_step_id", "trace_id", "span_id", "parent_span_id", "provider", "model")
 _VARS = {name: ContextVar(f"telemetry_{name}", default=None) for name in _FIELDS}
 _sequence_no: ContextVar[int] = ContextVar("telemetry_sequence_no", default=0)
 
 
 def new_id() -> str:
     return uuid.uuid4().hex
+
+
+def get_current_session_id() -> str | None:
+    return _VARS["session_id"].get()
+
+
+def get_current_field(name: str) -> str | None:
+    var = _VARS.get(name)
+    return var.get() if var else None
 
 
 def current_context() -> dict[str, str]:

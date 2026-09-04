@@ -39,8 +39,17 @@ def trigger_form_id(elements: list[dict]) -> str | None:
          or e.get("type") == "workflow_start_point"),
         None,
     )
+    if not start or is_schedule_start_point(start):
+        return None
     value = (start or {}).get("resourceID")
     return str(value) if value else None
+
+
+def is_schedule_start_point(element: dict | None) -> bool:
+    if not isinstance(element, dict):
+        return False
+    subtype = str(element.get("subType") or "").lower()
+    return subtype == "workflow_start_point_schedule"
 
 
 def extract_condition_terms(step_type: str, config: dict) -> list[tuple[str, dict]]:
@@ -193,8 +202,13 @@ def inspect_workflow(combined: dict, form_questions: dict | None = None) -> dict
     valid_field_ids = {str(qid) for qid in form_questions}
 
     issues: list[dict] = []
+    start = next(
+        (e for e in elements if str(e.get("element_id")) == "1"
+         or e.get("type") == "workflow_start_point"),
+        None,
+    )
     form_id = trigger_form_id(elements)
-    if not form_id:
+    if not form_id and not is_schedule_start_point(start):
         issues.append(_issue(
             "error",
             "missing_trigger_form",

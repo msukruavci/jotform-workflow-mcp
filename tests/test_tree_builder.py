@@ -115,6 +115,28 @@ def test_layered_dag_layout_centers_merge_below_lowest_parent():
     assert positions["final_email"]["y"] == lowest_parent_y + tb.STEP_Y
 
 
+def test_layered_dag_layout_moves_merge_to_avoid_vertical_edge_crossing():
+    elements = [{"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}}]
+    positions = tb.compute_layered_dag_positions(
+        elements,
+        ["receipt", "support_review", "finance_review", "payout", "approved_email", "rejected_email"],
+        [
+            ("start", "receipt", ""),
+            ("receipt", "support_review", ""),
+            ("support_review", "payout", "Process Refund"),
+            ("support_review", "rejected_email", "Reject Refund"),
+            ("support_review", "finance_review", "Escalate to Finance"),
+            ("finance_review", "payout", "Approve"),
+            ("finance_review", "rejected_email", "Deny"),
+            ("payout", "approved_email", "Refund Issued"),
+        ],
+    )
+
+    assert positions["finance_review"]["x"] == positions["support_review"]["x"]
+    assert positions["payout"]["x"] != positions["support_review"]["x"]
+    assert positions["approved_email"]["x"] == positions["payout"]["x"]
+
+
 def test_layered_dag_layout_distributes_n_way_branch_symmetrically():
     elements = [{"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}}]
     positions = tb.compute_layered_dag_positions(

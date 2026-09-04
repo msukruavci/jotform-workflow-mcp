@@ -22,7 +22,7 @@ class DummyClient:
         self.update_calls = []
         self.element_details = {}
 
-    def create_workflow(self, title):
+    def create_workflow(self, title, **kwargs):
         self.created = True
         return {"id": "wf_1"}
 
@@ -371,6 +371,25 @@ def test_normalize_email_config_matches_builder_email_save_shape():
     assert normalized["isDirty"] == "Yes"
 
 
+def test_normalize_email_config_wraps_html_fragment_without_escaping_tags():
+    client = DummyClient()
+
+    normalized, hint, error = building._normalize_email_config(
+        client,
+        "wf_1",
+        {
+            "to": [{"text": "Email Address", "id": "3"}],
+            "subject": "Application update",
+            "content": "<p>Merhaba {2}</p><p>Süreç tamamlandı.</p>",
+        },
+    )
+
+    assert error is None
+    assert "wrapped plain text" in hint
+    assert "<p>Merhaba {q2_fullname0}</p>" in normalized["content"]
+    assert "&lt;p&gt;" not in normalized["content"]
+
+
 def test_normalize_email_config_rewrites_content_field_tokens_to_question_names():
     client = DummyClient()
 
@@ -404,6 +423,98 @@ def test_normalize_email_config_preserves_rich_text_markup_on_partial_update():
     assert "<p>Hello <strong>{q2_fullname0}</strong></p>" in normalized["content"]
     assert "&lt;p&gt;" not in normalized["content"]
     assert normalized["isDirty"] == "Yes"
+
+
+def test_normalize_email_config_rewrites_subject_and_camelcase_content_tokens():
+    client = DummyClient()
+
+    normalized, hint, error = building._normalize_email_config(
+        client,
+        "wf_1",
+        {
+            "to": "{employeeEmail}, hr@workflow.invalid",
+            "subject": "Weekly report for {Full Name}",
+            "content": "Hi {fullName}, your report was reviewed.",
+        },
+        trigger_context=(
+            "form_1",
+            {
+                "2": {"text": "Full Name", "type": "control_fullname", "name": "q2_fullname0"},
+                "3": {"text": "Employee Email", "type": "control_email", "name": "employeeEmail"},
+            },
+            None,
+        ),
+    )
+
+    assert error is None
+    assert "normalized email subject field tokens" in hint
+    assert "normalized email content field tokens" in hint
+    assert normalized["subject"] == "Weekly report for {q2_fullname0}"
+    assert "{q2_fullname0}" in normalized["content"]
+    assert "{fullName}" not in normalized["content"]
+    assert len(normalized["to"]) == 2
+    assert normalized["to"][0]["isQuestion"] is True
+    assert normalized["to"][0]["value"] == "{employeeEmail}"
+    assert normalized["to"][0]["text"] == "Employee Email"
+    assert normalized["to"][1]["isQuestion"] is False
+    assert normalized["to"][1]["value"] == "hr@workflow.invalid"
+
+
+def test_normalize_email_recipients_rejects_ambiguous_email_field_token():
+    client = DummyClient()
+
+    normalized, hint, error = building._normalize_email_recipients(
+        client,
+        "wf_1",
+        {"to": "{missingEmail}"},
+        trigger_context=(
+            "form_1",
+            {
+                "3": {"text": "Employee Email", "type": "control_email", "name": "employeeEmail"},
+                "4": {"text": "Manager Email", "type": "control_email", "name": "managerEmail"},
+            },
+            None,
+        ),
+    )
+
+    assert hint is None
+    assert "does not match a real trigger form email field" in error
+    assert normalized["to"] == "{missingEmail}"
+
+
+def test_question_id_by_token_prefers_visible_label_when_name_is_generated():
+    questions = {
+        "3": {
+            "qid": "3",
+            "name": "q3_email1",
+            "text": "Yetkili Kişi E-posta Adresi",
+            "type": "control_email",
+        }
+    }
+
+    assert building._question_id_by_token(questions, "yetkili kisi eposta adresi") == "3"
+
+
+def test_question_id_by_token_accepts_unique_email_alias_without_matching_name():
+    questions = {
+        "7": {
+            "qid": "7",
+            "name": "q7_generated",
+            "text": "Kurumsal E-posta Adresi",
+            "type": "control_email",
+        }
+    }
+
+    assert building._question_id_by_token(questions, "email") == "7"
+
+
+def test_question_id_by_token_refuses_ambiguous_field_labels():
+    questions = {
+        "4": {"qid": "4", "name": "q4_email", "text": "Müşteri E-posta Adresi", "type": "control_email"},
+        "5": {"qid": "5", "name": "q5_email", "text": "Yönetici E-posta Adresi", "type": "control_email"},
+    }
+
+    assert building._question_id_by_token(questions, "email") is None
 
 
 def test_normalize_assignee_fields_matches_builder_fixed_email_shape():
@@ -453,6 +564,32 @@ def test_normalize_assignee_fields_accepts_trigger_email_field():
     assert hint
     assert normalized["assignee"][0]["isQuestion"] is True
     assert normalized["assignee"][0]["value"] == "{q3_email1}"
+
+
+def test_normalize_assignee_fields_resolves_field_token_string():
+    client = DummyClient()
+    # DummyClient has questions: q3 is "Email Address"
+    normalized, hint, error = building._normalize_assignee_fields(
+        client,
+        "wf_1",
+        {"assignee": "{Email Address}"},
+        ("assignee",),
+    )
+
+    assert error is None
+    assert hint
+    assert normalized["assignee"][0]["isQuestion"] is True
+    assert normalized["assignee"][0]["value"] == "{q3_email1}"
+
+
+def test_exact_field_id_wins_over_a_colliding_question_name():
+    questions = {
+        "2_email": {"text": "Student Email", "type": "control_email"},
+        "9": {"name": "2_email", "text": "Legacy Alias", "type": "control_textbox"},
+    }
+
+    assert building._question_id_by_token(questions, "2_email") == "2_email"
+
 
 
 def test_connect_assign_task_requires_named_outcome():

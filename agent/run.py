@@ -57,7 +57,25 @@ async def build_tool_definitions() -> list[dict]:
     ]
 
 
-async def run_tool(name: str, args: dict) -> str:
+def _model_result(name: str, structured: dict) -> dict:
+    if name != "show_workflow":
+        return structured
+    data = structured.get("data") if isinstance(structured.get("data"), dict) else {}
+    return {
+        "view": structured.get("view"),
+        "workflow_id": data.get("workflow_id"),
+        "workflow_url": data.get("workflow_url"),
+        "title": data.get("title"),
+        "status": data.get("status"),
+        "revision_id": data.get("revision_id"),
+        "step_count": len(data.get("step_states") or data.get("steps") or []),
+        "warnings": data.get("warnings") or [],
+        "error": data.get("error"),
+        "ui_rendered": True,
+    }
+
+
+async def run_tool(name: str, args: dict, session_id: str | None = None) -> str:
     """
     Call a tool and return its result as text for the model.
 
@@ -67,13 +85,14 @@ async def run_tool(name: str, args: dict) -> str:
     loop dying silently.
     """
     try:
-        result = await mcp.call_tool(name, args)
+        context = {"session_id": session_id} if session_id else None
+        result = await mcp.call_tool(name, args, context)
     except Exception as e:  # noqa: BLE001
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
 
     structured = getattr(result, "structured_content", None)
     if structured is not None:
-        return json.dumps(structured, ensure_ascii=False)
+        return json.dumps(_model_result(name, structured), ensure_ascii=False)
 
     parts = []
     for block in getattr(result, "content", None) or []:
@@ -132,7 +151,7 @@ async def converse(client, tools: list[dict], messages: list[dict],
             if block.type != "tool_use":
                 continue
             t0 = time.perf_counter()
-            output = await run_tool(block.name, block.input)
+            output = await run_tool(block.name, block.input, (trace or {}).get("session_id"))
             duration_ms = (time.perf_counter() - t0) * 1000
             preview = output[:150].replace("\n", " ")
             print(f"  [result] {preview}{'...' if len(output) > 150 else ''}")
@@ -167,15 +186,31 @@ async def main() -> int:
         print("ANTHROPIC_API_KEY is not set — add it to .env")
         return 1
 
+    from agent import cost, logging_
+    import uuid
+
     client = Anthropic()
     tools = await build_tool_definitions()
-    print(f"{len(tools)} tools loaded, profile={current_profile()}, model={MODEL}\n")
+    session_id = str(uuid.uuid4())[:8]
+    print(f"{len(tools)} tools loaded, surface={current_profile()}, model={MODEL}, session={session_id}\n")
 
     messages: list[dict] = []
 
     if len(sys.argv) > 1:
-        messages.append({"role": "user", "content": " ".join(sys.argv[1:])})
-        await converse(client, tools, messages)
+        question = " ".join(sys.argv[1:])
+        messages.append({"role": "user", "content": question})
+        trace: dict = {"session_id": session_id}
+        t0 = time.perf_counter()
+        await converse(client, tools, messages, trace=trace)
+        duration_ms = (time.perf_counter() - t0) * 1000
+        logging_.log_turn(
+            session_id=session_id, provider="anthropic", model=MODEL,
+            question=question, answer=trace.get("answer", ""),
+            tool_calls=trace.get("tool_calls", []),
+            input_tokens=trace.get("input_tokens"), output_tokens=trace.get("output_tokens"),
+            cost_usd=cost.estimate_cost(MODEL, trace.get("input_tokens"), trace.get("output_tokens")),
+            duration_ms=duration_ms, error=trace.get("error"),
+        )
         return 0
 
     while True:
@@ -187,7 +222,18 @@ async def main() -> int:
         if user_input.lower() in ("exit", "quit", ""):
             return 0
         messages.append({"role": "user", "content": user_input})
-        messages = await converse(client, tools, messages)
+        trace = {"session_id": session_id}
+        t0 = time.perf_counter()
+        messages = await converse(client, tools, messages, trace=trace)
+        duration_ms = (time.perf_counter() - t0) * 1000
+        logging_.log_turn(
+            session_id=session_id, provider="anthropic", model=MODEL,
+            question=user_input, answer=trace.get("answer", ""),
+            tool_calls=trace.get("tool_calls", []),
+            input_tokens=trace.get("input_tokens"), output_tokens=trace.get("output_tokens"),
+            cost_usd=cost.estimate_cost(MODEL, trace.get("input_tokens"), trace.get("output_tokens")),
+            duration_ms=duration_ms, error=trace.get("error"),
+        )
 
 
 if __name__ == "__main__":

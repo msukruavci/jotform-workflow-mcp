@@ -1,18 +1,4 @@
-"""
-Layer 4: risky.
-
-Every tool here follows a two-call pattern: call once and nothing happens —
-you get back what *would* happen. Call again with confirm=True and it does.
-This is not a suggestion to the model, it's the only way these tools work:
-there is no single call that both previews and acts.
-
-Why this shape and not a yes/no prompt inside the tool: MCP tools are
-synchronous request/response, there's no channel to pause mid-call and wait
-for a person to answer. Forcing two calls means the model must have shown
-the preview and gotten an explicit go-ahead in the conversation before
-confirm=True can mean anything — a model that fabricates confirmation is
-lying to the person, not working around a technical limitation.
-"""
+"""Layer 4: risky write tools."""
 from __future__ import annotations
 
 from typing import Annotated
@@ -22,7 +8,7 @@ from pydantic import Field
 
 from mcp_server import graph, revision_log, schema_registry, workflow_inspector
 from mcp_server import tree_builder as tb
-from mcp_server.jotform_client import JotformAPIError, JotformClient
+from mcp_server.jotform_client import JotformAPIError, JotformClient, workflow_revision_id
 from mcp_server.models import (
     DeleteStepResult, DeleteWorkflowResult, PublishWorkflowResult,
     RestoreWorkflowRevisionResult,
@@ -56,6 +42,27 @@ def _revision_reason(default: str, intent: str = "", reason: str = "") -> str:
     return f"{default} ({'; '.join(details)})" if details else default
 
 
+def _draft_recipient_placeholders(elements: list[dict]) -> list[str]:
+    recipient_keys = {"to", "cc", "bcc", "replyTo", "approver", "assignee", "recipients"}
+    found: set[str] = set()
+
+    def visit(value, *, in_recipient: bool = False) -> None:
+        if isinstance(value, dict):
+            for nested_key, nested in value.items():
+                visit(nested, in_recipient=in_recipient or str(nested_key) in recipient_keys)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested, in_recipient=in_recipient)
+        elif in_recipient and isinstance(value, str):
+            lowered = value.lower()
+            if "@" in value and (".invalid" in lowered or ".internal" in lowered):
+                found.add(value)
+
+    for element in elements:
+        visit(element)
+    return sorted(found)
+
+
 def _restore_result_from_revision(
     workflow_id: str,
     revision: dict,
@@ -63,6 +70,7 @@ def _restore_result_from_revision(
     needs_confirmation: bool = False,
     restored: bool = False,
     current_backup_revision_id: str | None = None,
+    current_revision_id: str | None = None,
     hint: str | None = None,
 ) -> RestoreWorkflowRevisionResult:
     summary = revision_log.summarize_revision(revision)
@@ -77,6 +85,7 @@ def _restore_result_from_revision(
         target_step_count=summary.get("step_count") or 0,
         target_link_count=summary.get("link_count") or 0,
         current_backup_revision_id=current_backup_revision_id,
+        current_revision_id=current_revision_id,
         needs_confirmation=needs_confirmation,
         restored=restored,
         hint=hint,
@@ -271,70 +280,155 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
     @mcp.tool()
     def publish_workflow(
-        workflow_id: Annotated[str, Field(description="From list_workflows.")],
+        workflow_id: Annotated[str, Field(
+            description=(
+                "Workflow ID to enable. Do not call this immediately after "
+                "build_workflow_bulk. First call show_workflow and answer with "
+                "the workflow/form links; call publish_workflow only if the user "
+                "explicitly asks to enable or publish."
+            )
+        )],
         confirm: Annotated[bool, Field(
             description=(
-                "Leave false to check the workflow's structure and see "
-                "what publishing would do. Only pass true after showing "
-                "that to the user and getting their explicit go-ahead."
+                "Leave false for the enable preview, but only call even the preview "
+                "after the user explicitly asks to enable/publish. Set true only "
+                "after the user explicitly confirms that this disabled workflow "
+                "should start running."
+            )
+        )] = False,
+        expected_revision_id: Annotated[str, Field(
+            description=(
+                "Required with confirm=true. Echo revision_id from the immediately preceding "
+                "confirm=false preview so a changed workflow cannot be enabled accidentally."
+            )
+        )] = "",
+        allow_draft_recipients: Annotated[bool, Field(
+            description=(
+                "Default false. Set true only if the user explicitly accepts enabling "
+                "with .invalid/.internal draft recipient placeholders after seeing the "
+                "warnings. This can route workflow notifications to placeholder addresses."
             )
         )] = False,
         intent: Annotated[str, INTENT_FIELD] = "",
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> PublishWorkflowResult:
         """
-        Publish a workflow, making it live — from this point on, matching
-        form submissions actually run it.
+        Enable a disabled workflow, making it live — from this point on,
+        matching form submissions can run it.
 
-        First call (confirm=false) changes nothing. It runs the same health
-        check as get_workflow — unreachable steps, dead ends, unlabelled
-        branches — and returns them as warnings. A workflow with warnings
-        can still be published; the warnings exist so the user finds out
-        about a broken branch from you, before it goes live, rather than
-        from a submission that silently went nowhere.
+        Do not use this as the normal final step after creating or editing a
+        workflow. First call show_workflow and answer with the workflow/form
+        links. Use publish_workflow only when the user explicitly asks to
+        enable or publish. The first call with confirm=false only previews the
+        status change and any advisory health warnings. Call again with
+        confirm=true only after the user explicitly agrees. Draft recipient
+        placeholders are warned; enabling with them requires the user to accept
+        the warning and allow_draft_recipients=true. Workflows are intentionally
+        left DISABLED after every build_workflow_bulk write.
         """
         try:
             combined = client.get_workflow_combined(workflow_id)
         except JotformAPIError as e:
             return PublishWorkflowResult(workflow_id=workflow_id, error=str(e))
 
-        if not confirm:
-            elements = [e for e in (combined.get("elements") or []) if isinstance(e, dict)]
-            links = [l for l in (combined.get("links") or []) if isinstance(l, dict)]
-            steps = [{"step_id": e.get("element_id"), "type": e.get("type")} for e in elements]
-            conns = [{"link_id": l.get("link_id"), "from_step": l.get("fromElement"),
-                     "to_step": l.get("toElement")} for l in links]
-            health = graph.analyse(steps, conns)
-            branch_health = workflow_inspector.branch_diagnostics(elements, links)
+        elements = [e for e in (combined.get("elements") or []) if isinstance(e, dict)]
+        links = [l for l in (combined.get("links") or []) if isinstance(l, dict)]
+        steps = [{"step_id": e.get("element_id"), "type": e.get("type")} for e in elements]
+        conns = [{"link_id": l.get("link_id"), "from_step": l.get("fromElement"),
+                 "to_step": l.get("toElement")} for l in links]
+        health = graph.analyse(steps, conns)
+        branch_health = workflow_inspector.branch_diagnostics(elements, links)
+        workflow_meta = combined.get("workflow") if isinstance(combined.get("workflow"), dict) else {}
+        current_status = str(workflow_meta.get("status") or "").upper() or None
+        current_revision_id = workflow_revision_id(combined)
 
-            warnings = []
-            if health["unreachable_steps"]:
-                warnings.append(f"{len(health['unreachable_steps'])} step(s) can never run: "
-                               f"{health['unreachable_steps']}")
-            if health["dead_end_steps"]:
-                warnings.append(f"{len(health['dead_end_steps'])} step(s) lead nowhere: "
-                               f"{health['dead_end_steps']}")
-            if health["dangling_links"]:
-                warnings.append(f"broken link(s): {health['dangling_links']}")
-            unconnected_branches = _unconnected_branch_outcomes(elements)
-            if unconnected_branches:
-                warnings.append(f"unconnected branch outcome(s): {unconnected_branches}")
-            if branch_health["unlabelled_branching_steps"]:
-                warnings.append(
-                    "unlabelled branching link(s): "
-                    f"{branch_health['unlabelled_branching_steps']}"
-                )
-            if branch_health["invalid_branch_links"]:
-                warnings.append(
-                    f"invalid branch mapping(s): {branch_health['invalid_branch_links']}"
-                )
+        warnings = []
+        if health["unreachable_steps"]:
+            warnings.append(f"{len(health['unreachable_steps'])} step(s) can never run: "
+                           f"{health['unreachable_steps']}")
+        if health["dead_end_steps"]:
+            warnings.append(f"{len(health['dead_end_steps'])} step(s) lead nowhere: "
+                           f"{health['dead_end_steps']}")
+        if health["dangling_links"]:
+            warnings.append(f"broken link(s): {health['dangling_links']}")
+        unconnected_branches = _unconnected_branch_outcomes(elements)
+        if unconnected_branches:
+            warnings.append(f"unconnected branch outcome(s): {unconnected_branches}")
+        if branch_health["unlabelled_branching_steps"]:
+            warnings.append(
+                "unlabelled branching link(s): "
+                f"{branch_health['unlabelled_branching_steps']}"
+            )
+        if branch_health["invalid_branch_links"]:
+            warnings.append(
+                f"invalid branch mapping(s): {branch_health['invalid_branch_links']}"
+            )
+        placeholders = _draft_recipient_placeholders(elements)
+        if placeholders:
+            warnings.append(
+                "draft recipient placeholder(s) present before enabling: "
+                + ", ".join(placeholders)
+            )
 
+        if current_status == "ENABLED":
             return PublishWorkflowResult(
-                workflow_id=workflow_id, needs_confirmation=True,
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                current_status=current_status,
+                revision_id=current_revision_id,
+                health_warnings=warnings,
+                published=True,
+                hint="Workflow is already ENABLED; no status change was made.",
+            )
+
+        if not confirm:
+            return PublishWorkflowResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                current_status=current_status,
+                revision_id=current_revision_id,
+                needs_confirmation=True,
                 health_warnings=warnings,
                 hint=(
-                    "Show this to the user, warnings included even if empty. "
-                    "Call again with confirm=true only if they say to proceed."
+                    "Show the current DISABLED status and advisory warnings to the user. "
+                    "Call publish_workflow again with confirm=true and expected_revision_id set "
+                    "to this revision_id only if they explicitly want it to start running."
+                ),
+            )
+
+        if not expected_revision_id:
+            return PublishWorkflowResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                current_status=current_status,
+                revision_id=current_revision_id,
+                health_warnings=warnings,
+                error="expected_revision_id is required when confirm=true.",
+                hint="Preview again with confirm=false and echo its revision_id exactly.",
+            )
+        if expected_revision_id != current_revision_id:
+            return PublishWorkflowResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                current_status=current_status,
+                revision_id=current_revision_id,
+                health_warnings=warnings,
+                error="Workflow changed after the publish preview; it was not enabled.",
+                hint="Preview again and ask for confirmation against the new revision_id.",
+            )
+        if placeholders and not allow_draft_recipients:
+            return PublishWorkflowResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                current_status=current_status,
+                revision_id=current_revision_id,
+                health_warnings=warnings,
+                needs_confirmation=True,
+                error="Draft recipient placeholders need explicit override before publishing.",
+                hint=(
+                    "Recommended: replace every .invalid/.internal recipient, then preview publishing again. "
+                    "If the user explicitly accepts the risk, call publish_workflow with confirm=true, "
+                    "the same expected_revision_id, and allow_draft_recipients=true."
                 ),
             )
 
@@ -345,11 +439,50 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 _revision_reason("before publish_workflow", intent, reason),
                 tool_name="publish_workflow",
             )
-            client.publish_workflow(workflow_id)
+            publish_result = client.publish_workflow(workflow_id)
         except JotformAPIError as e:
-            return PublishWorkflowResult(workflow_id=workflow_id, error=str(e))
+            return PublishWorkflowResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                current_status=current_status,
+                health_warnings=warnings,
+                error=str(e),
+            )
 
-        return PublishWorkflowResult(workflow_id=workflow_id, published=True)
+        enabled_status = (
+            str(publish_result.get("status") or "").upper()
+            if isinstance(publish_result, dict)
+            else ""
+        )
+        if enabled_status != "ENABLED":
+            try:
+                live = client.get_workflow(workflow_id)
+                enabled_status = str(live.get("status") or "").upper()
+            except JotformAPIError as e:
+                return PublishWorkflowResult(
+                    workflow_id=workflow_id,
+                    workflow_url=_workflow_url(workflow_id),
+                    current_status=current_status,
+                    health_warnings=warnings,
+                    error=f"Enable request completed but status verification failed: {e}",
+                )
+        if enabled_status != "ENABLED":
+            return PublishWorkflowResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                current_status=enabled_status or current_status,
+                health_warnings=warnings,
+                error="Workflow enable request did not persist as ENABLED.",
+            )
+
+        return PublishWorkflowResult(
+            workflow_id=workflow_id,
+            workflow_url=_workflow_url(workflow_id),
+            current_status="ENABLED",
+            revision_id=current_revision_id,
+            health_warnings=warnings,
+            published=True,
+        )
 
 
     @mcp.tool()
@@ -357,9 +490,9 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         workflow_id: Annotated[str, Field(description="From list_workflows.")],
         revision_id: Annotated[str, Field(
             description=(
-                "Optional. If empty, restores the newest saved revision for "
-                "this workflow, usually the state immediately before the last "
-                "mutating tool call."
+                "For preview, may be empty to select the newest saved revision. "
+                "With confirm=true it is required and must exactly match the "
+                "revision_id returned by that preview."
             )
         )] = "",
         confirm: Annotated[bool, Field(
@@ -370,6 +503,12 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 "before restore."
             )
         )] = False,
+        expected_current_revision_id: Annotated[str, Field(
+            description=(
+                "Required with confirm=true. Echo current_revision_id from the restore preview "
+                "so concurrent workflow edits cannot be overwritten."
+            )
+        )] = "",
         intent: Annotated[str, INTENT_FIELD] = "",
         reason: Annotated[str, REASON_FIELD] = "",
     ) -> RestoreWorkflowRevisionResult:
@@ -380,6 +519,14 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         disconnect/delete/publish operations. Without revision_id, this uses
         the newest saved revision, so it is the "go back one change" tool.
         """
+        if confirm and not revision_id:
+            return RestoreWorkflowRevisionResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                error="revision_id is required when confirm=true.",
+                hint="Preview again with confirm=false and echo its revision_id exactly.",
+            )
+
         revision = revision_log.load_workflow_revision(workflow_id, revision_id or None)
         if revision is None:
             return RestoreWorkflowRevisionResult(
@@ -395,15 +542,46 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 ),
             )
 
+        try:
+            current_snapshot = client.get_workflow_combined(workflow_id)
+            current_revision_id = workflow_revision_id(current_snapshot)
+        except JotformAPIError as error:
+            return RestoreWorkflowRevisionResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                revision_id=revision.get("revision_id"),
+                error=f"Could not bind the restore to the current live workflow: {error}",
+            )
+
         if not confirm:
             return _restore_result_from_revision(
                 workflow_id,
                 revision,
                 needs_confirmation=True,
+                current_revision_id=current_revision_id,
                 hint=(
-                    "Show this target revision to the user. Call again with "
-                    "confirm=true only if they explicitly say to restore it."
+                    "Show this target revision to the user. Call again with confirm=true "
+                    "with this exact revision_id and current_revision_id only if they explicitly say to restore it."
                 ),
+            )
+
+        if not expected_current_revision_id:
+            return RestoreWorkflowRevisionResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                revision_id=revision.get("revision_id"),
+                current_revision_id=current_revision_id,
+                error="expected_current_revision_id is required when confirm=true.",
+                hint="Preview again and echo both revision identifiers exactly.",
+            )
+        if expected_current_revision_id != current_revision_id:
+            return RestoreWorkflowRevisionResult(
+                workflow_id=workflow_id,
+                workflow_url=_workflow_url(workflow_id),
+                revision_id=revision.get("revision_id"),
+                current_revision_id=current_revision_id,
+                error="Workflow changed after the restore preview; no restore was attempted.",
+                hint="Preview the restore again against the latest workflow revision.",
             )
 
         backup = None
@@ -419,7 +597,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 tool_name="restore_workflow_revision",
             )
             revision_log.restore_workflow_revision(client, workflow_id, revision)
-        except (JotformAPIError, ValueError) as e:
+        except (JotformAPIError, RuntimeError, ValueError) as e:
             return RestoreWorkflowRevisionResult(
                 workflow_id=workflow_id,
                 workflow_url=_workflow_url(workflow_id),
@@ -433,6 +611,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             revision,
             restored=True,
             current_backup_revision_id=backup.get("revision_id") if backup else None,
+            current_revision_id=current_revision_id,
         )
 
     @mcp.tool()

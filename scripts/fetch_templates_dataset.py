@@ -120,12 +120,16 @@ def parse_snapshot(snapshot_raw: str | dict | None) -> tuple[list[dict], list[di
         return [], [], [], {}
 
 
-def compute_metrics_and_embeddings(dataset: list[dict]) -> None:
+def compute_metrics_and_embeddings(dataset: list[dict], index_path: Path) -> None:
     try:
         import faiss
         from fastembed import TextEmbedding
     except ImportError as e:
         LOGGER.error("faiss-cpu or fastembed not installed: %s", e)
+        return
+
+    if not dataset:
+        LOGGER.info("Empty dataset, skipping embeddings generation for %s", index_path)
         return
 
     LOGGER.info("Generating embeddings with fastembed for %d templates...", len(dataset))
@@ -164,8 +168,8 @@ def compute_metrics_and_embeddings(dataset: list[dict]) -> None:
     index.add(normalized_matrix)
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    faiss.write_index(index, str(INDEX_PATH))
-    LOGGER.info("FAISS index saved to %s (dimension=%d, total=%d)", INDEX_PATH, dimension, index.ntotal)
+    faiss.write_index(index, str(index_path))
+    LOGGER.info("FAISS index saved to %s (dimension=%d, total=%d)", index_path, dimension, index.ntotal)
 
 
 def main() -> None:
@@ -241,13 +245,13 @@ def main() -> None:
         dataset.append(entry)
 
     LOGGER.info("Processing metrics and building FAISS index for %d templates...", len(dataset))
-    compute_metrics_and_embeddings(dataset)
+    compute_metrics_and_embeddings(dataset, INDEX_PATH)
 
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     with open(DATASET_PATH, "w", encoding="utf-8") as f:
         json.dump(dataset, f, ensure_ascii=False, indent=2)
 
-    LOGGER.info("All done! Saved %d templates to %s with full metrics and FAISS index at %s", len(dataset), DATASET_PATH, INDEX_PATH)
+    LOGGER.info("All done! Saved %d templates.", len(dataset))
 
 
 if __name__ == "__main__":

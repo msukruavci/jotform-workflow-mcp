@@ -51,15 +51,35 @@ class FakeClient:
                     "x": 10,
                     "y": 200,
                 },
+                {
+                    "element_id": "3",
+                    "type": "workflow_send_email",
+                    "name": "Unfinished external email",
+                    "to": [{"value": "student@example.com", "text": "student@example.com"}],
+                    "subject": "",
+                    "content": "",
+                    "x": 10,
+                    "y": 380,
+                },
             ],
-            "links": [{
-                "link_id": "2",
-                "fromElement": "2",
-                "toElement": "1",
-                "fromPortName": "DYNAMIC_BOTTOM_1_Out",
-                "toPortName": "DYNAMIC_TOP_1_In",
-                "type": "default-link",
-            }],
+            "links": [
+                {
+                    "link_id": "2",
+                    "fromElement": "2",
+                    "toElement": "1",
+                    "fromPortName": "DYNAMIC_BOTTOM_1_Out",
+                    "toPortName": "DYNAMIC_TOP_1_In",
+                    "type": "default-link",
+                },
+                {
+                    "link_id": "3",
+                    "fromElement": "1",
+                    "toElement": "3",
+                    "fromPortName": "RIGHT_MIDDLE_Out",
+                    "toPortName": "LEFT_MIDDLE_In",
+                    "type": "default-link",
+                },
+            ],
         }
 
     def get_form(self, form_id):
@@ -84,7 +104,7 @@ def _server():
 
 
 def test_ui_resource_is_registered_with_mcp_app_mime_type():
-    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v52.html"
+    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v53.html"
 
     with patch.dict("os.environ", {"WORKFLOW_SETTINGS_RUNTIME_URL": ""}):
         server = _server()
@@ -94,8 +114,8 @@ def test_ui_resource_is_registered_with_mcp_app_mime_type():
     assert resource.mime_type == APP_MIME_TYPE
     assert "domain" not in resource.meta["ui"]
     assert resource.meta["ui"]["csp"] == {
-        "connectDomains": ["https://api.jotform.com", "https://*.jotform.com"],
-        "resourceDomains": ["https://*.jotform.com", "https://*.jotform.io", "https://cdn.jotfor.ms"],
+        "connectDomains": ["https://api.jotform.com"],
+        "resourceDomains": ["https://www.jotform.com", "https://cdn.jotfor.ms"],
         "frameDomains": [],
         "baseUriDomains": [],
     }
@@ -104,6 +124,22 @@ def test_ui_resource_is_registered_with_mcp_app_mime_type():
     contents = list(asyncio.run(server.read_resource(WORKFLOW_UI_RESOURCE_URI)))
     assert contents[0].mime_type == APP_MIME_TYPE
     assert "workflow ui" in contents[0].content
+
+
+def test_ui_csp_uses_exact_origins_and_disallows_nested_frames():
+    with patch.dict("os.environ", {"WORKFLOW_SETTINGS_RUNTIME_URL": ""}):
+        resources = asyncio.run(_server().list_resources())
+    resource = next(item for item in resources if str(item.uri) == WORKFLOW_UI_RESOURCE_URI)
+    csp = resource.meta["ui"]["csp"]
+
+    assert csp["connectDomains"] == ["https://api.jotform.com"]
+    assert csp["resourceDomains"] == [
+        "https://www.jotform.com",
+        "https://cdn.jotfor.ms",
+    ]
+    assert csp["frameDomains"] == []
+    assert csp["baseUriDomains"] == []
+    assert all("*" not in origin for origins in csp.values() for origin in origins)
 
 
 def test_legacy_ui_resources_serve_the_current_bundle():
@@ -143,6 +179,7 @@ def test_show_workflow_returns_versioned_authoritative_payload():
     assert result.structured_content["view"] == "workflow-preview"
     assert result.structured_content["schemaVersion"] == 2
     assert result.structured_content["data"]["workflow_id"] == "wf-1"
+    assert result.structured_content["data"]["workflow_url"] == "https://www.jotform.com/workflow/wf-1/build"
     assert result.structured_content["data"]["elements"][0]["element_id"] == "1"
     assert result.structured_content["data"]["elements"][0]["x"] == 10
     assert result.structured_content["data"]["elements"][0]["resourceObject"] == {
@@ -159,6 +196,39 @@ def test_show_workflow_returns_versioned_authoritative_payload():
     }
     assert result.structured_content["data"]["elements"][1]["outcomes"][0]["linkID"] == 2
     assert result.structured_content["data"]["links"][0]["labels"] == [{"label": "Complete"}]
+    assert result.structured_content["data"]["step_states"][2] == {
+        "step_id": "3",
+        "type": "workflow_send_email",
+        "label": "Unfinished external email",
+        "incoming": [{"link_id": "3", "step_id": "1", "outcome": None}],
+        "outgoing": [],
+        "key_config": {
+            "to": ["student@example.com"],
+            "subject": None,
+            "content_present": False,
+            "content_excerpt": None,
+        },
+        "missing_fields": ["subject", "content"],
+        "config_complete": False,
+    }
+    assert result.structured_content["data"]["email_steps"] == [
+        {
+            "step_id": "3",
+            "label": "Unfinished external email",
+            "to": ["student@example.com"],
+            "subject": None,
+            "content_present": False,
+            "content_excerpt": None,
+            "missing_fields": ["subject", "content"],
+            "incoming": [{"link_id": "3", "from_step": "1", "outcome": None}],
+        }
+    ]
+    assert result.structured_content["data"]["warnings"] == []
+    assert "health" not in result.structured_content["data"]
+    assert "diagnostics" not in result.structured_content["data"]
+    assert len(result.content) == 1
+    assert "resourceObject" not in result.content[0].text
+    assert len(result.content[0].text) < 500
 
 
 def test_configured_settings_runtime_is_scoped_to_payload_and_csp():

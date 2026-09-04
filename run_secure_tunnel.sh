@@ -27,6 +27,9 @@ if [[ -z "${CONTROL_PLANE_API_KEY:-}" ]]; then
   exit 1
 fi
 
+export MCP_CLIENT_PROVIDER="openai"
+export MCP_CLIENT_MODEL="ChatGPT Developer Connector"
+
 TUNNEL_CLIENT="${TUNNEL_CLIENT:-/home/avci/Desktop/jotform-mcp-phase1/tunnel-client}"
 PROFILE="${TUNNEL_CLIENT_PROFILE:-jotform-workflow}"
 

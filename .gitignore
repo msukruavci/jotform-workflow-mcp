@@ -20,3 +20,5 @@ probes/findings/
 # Çevre değişkenleri ve gizli dosyalar (API anahtarlarınız buradaysa)
 .env
 .DS_Store
+*.ses
+mcp_server/assets/*_backup.*

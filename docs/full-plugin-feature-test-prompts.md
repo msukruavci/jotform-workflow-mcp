@@ -44,16 +44,16 @@ Create a new workflow for candidate screening.
 Expected:
 
 ```text
-- It should not directly call create_workflow without a trigger form.
-- It should ask whether I want to use an existing form or create a new AI form.
-- It should keep the question short.
+- It should optionally search one English template query because details are sparse.
+- It should call create_form_with_ai before build_workflow_bulk.
+- It should finish with show_workflow.
 ```
 
 Unexpected:
 
 ```text
 - It creates a forms-free workflow.
-- It calls list_forms before asking for form strategy.
+- It calls list_forms even though no existing form was requested.
 - It creates a placeholder trigger.
 ```
 
@@ -66,7 +66,7 @@ Create a new AI form. The form should collect Full Name, Email Address, Phone Nu
 Expected:
 
 ```text
-- It should call create_workflow_with_ai_form.
+- It should call create_form_with_ai, then build_workflow_bulk with trigger_form_id.
 - The language should be English by default.
 - It should return a workflow builder link in this format:
   https://www.jotform.com/workflow/{workflow_id}/build
@@ -96,7 +96,7 @@ Add an email step after the On Submission trigger. Name it "Application received
 Expected:
 
 ```text
-- It should call get_form_fields if needed.
+- It should use the fields returned by create_form_with_ai or a fresh get_workflow.
 - It should add a workflow_send_email step.
 - It should normalize recipient to the real Email Address field.
 - It should normalize content tokens to real field tokens such as {q2_fullname0}.
@@ -181,7 +181,7 @@ Expected:
 
 ```text
 - It should create or reuse three email steps.
-- It should connect each one with connect_steps using the exact outcome text.
+- It should wire each one through build_workflow_bulk using the exact outcome text.
 - It should update both links[] and the HR task outcomes[].linkID mapping.
 - get_workflow should show connections with outcomes:
   Proceed to Interview
@@ -200,18 +200,18 @@ Unexpected:
 
 ---
 
-### Test 6: Gap Inspection Should Catch Dead Ends
+### Test 6: Workflow Health Readback Should Catch Dead Ends
 
 Prompt:
 
 ```text
-Inspect the workflow for gaps before I publish it. Do not publish yet.
+Check the workflow health before I publish it. Do not publish yet.
 ```
 
 Expected:
 
 ```text
-- It should call inspect_workflow_gaps.
+- It should call get_workflow and use the returned health object.
 - If the outcome emails have no outgoing paths, it may report dead-end warnings.
 - It should not publish.
 - It should ask what should happen after the dead-end steps or suggest adding End steps.
@@ -220,7 +220,7 @@ Expected:
 Unexpected:
 
 ```text
-- It says the workflow is complete without inspection.
+- It says the workflow is complete without reading back workflow health.
 - It publishes without confirmation.
 - It ignores disconnected outcomes or dead-end steps.
 ```
@@ -236,7 +236,7 @@ Expected:
 ```text
 - It should add End steps after Interview invitation, Application update, and More information needed.
 - It should avoid overlapping layout where possible.
-- A final inspect_workflow_gaps should return no blocking issues.
+- A final get_workflow health readback should show no blocking issues.
 ```
 
 Unexpected:
@@ -248,40 +248,19 @@ Unexpected:
 
 ---
 
-### Test 7: Publish Preview Guardrail
+### Test 7: Publish Workflow
 
 Prompt:
 
 ```text
-Preview publishing this workflow. Do not publish unless I explicitly confirm.
+Publish this workflow.
 ```
 
 Expected:
 
 ```text
-- It should call publish_workflow with confirm=false.
-- It should return needs_confirmation=true.
+- It should call publish_workflow once; no confirm flag is needed.
 - It should show health_warnings even if empty.
-- It should not publish.
-```
-
-Unexpected:
-
-```text
-- It calls confirm=true without explicit user approval.
-- It hides warnings.
-```
-
-Follow-up prompt if preview is clean:
-
-```text
-Confirmed. Publish the workflow.
-```
-
-Expected:
-
-```text
-- It should call publish_workflow with confirm=true.
 - It should save a revision before publishing.
 - It should return published=true.
 ```
@@ -289,7 +268,8 @@ Expected:
 Unexpected:
 
 ```text
-- It refuses despite a clean preview.
+- It hides warnings.
+- It asks for a redundant confirmation instead of publishing.
 - It publishes a different workflow.
 ```
 
@@ -346,7 +326,7 @@ Expected:
 ```text
 - It should detect a similar existing step.
 - It should return existing_step_id and not create a duplicate.
-- It should suggest update_step or connect_steps, or ask for allow_duplicate only if I really want another one.
+- It should suggest using build_workflow_bulk to reuse/update/wire it, or ask for allow_duplicate only if I really want another one.
 ```
 
 Unexpected:
@@ -471,7 +451,7 @@ Add a conditional branch after the Application received email. Branch candidates
 Expected:
 
 ```text
-- It should use get_form_fields if it needs field ids.
+- It should use a fresh get_workflow when it needs field ids for an existing workflow.
 - It should use the real field_id for Years of Experience, not the label text.
 - If it cannot safely build the condition, it should ask which real field to use.
 ```
@@ -492,7 +472,7 @@ Use the real "Years of Experience" field from the trigger form. Create two branc
 Expected:
 
 ```text
-- It should use the actual field id returned by get_form_fields.
+- It should use the actual field id from the fresh get_workflow result.
 ```
 
 ---
@@ -700,8 +680,8 @@ I want to run a full feature test of the Jotform Workflow MCP plugin. Please bui
 3. Default language must be English.
 4. Use real form field references for recipients and email content. Do not use raw field labels as if they were field IDs.
 5. Before adding any task, approval, assignment, condition, PDF, payment, or outcome-based step, ask for missing essential details instead of creating an empty placeholder.
-6. Before publishing, inspect the workflow for gaps and preview publishing first. Do not publish unless I explicitly confirm.
-7. Before deleting, restoring, or publishing, use the preview/confirmation flow.
+6. Before publishing, inspect the workflow health and report any warnings, then publish with a single publish_workflow call.
+7. Before deleting or restoring, use the preview/confirmation flow.
 8. Use intent and reason fields for mutating tool calls with short privacy-conscious summaries.
 9. Always show direct Jotform links for workflow and form results.
 
@@ -756,7 +736,7 @@ For "Request More Information":
 
 Add End steps after the final email in each branch.
 
-After building, run get_workflow and inspect_workflow_gaps. Report:
+After building, run get_workflow. Report:
 - Workflow builder link
 - Trigger form builder link
 - All steps and connections
@@ -764,9 +744,9 @@ After building, run get_workflow and inspect_workflow_gaps. Report:
 - Whether there are unreachable steps, dead ends, dangling links, unconnected branches, invalid branch mappings, or unlabelled branching links
 - Any warnings from normalization
 
-Then preview publishing only. Do not publish unless I explicitly say "Confirmed. Publish the workflow."
+Then publish the workflow and report any publish warnings.
 
-After the publish preview, list the latest workflow revisions and preview restoring the latest revision without restoring it. Do not restore unless I explicitly confirm.
+After publishing, list the latest workflow revisions and preview restoring the latest revision without restoring it. Do not restore unless I explicitly confirm.
 ```
 
 Expected from the one large prompt:
@@ -779,8 +759,8 @@ Expected from the one large prompt:
 - It should connect outcome branches correctly.
 - It should create a 2-day wait step only for Request More Information.
 - It should add End steps.
-- inspect_workflow_gaps should ideally return no issues after End steps.
-- publish_workflow should be called with confirm=false only.
+- get_workflow health should ideally show no issues after End steps.
+- publish_workflow should be called once without a confirm flag.
 - restore_workflow_revision should be previewed with confirm=false only.
 ```
 
@@ -791,7 +771,7 @@ Unexpected from the one large prompt:
 - Email recipients are plain text instead of form field references.
 - Task outcomes exist but are not selectable/connected.
 - Any outcome email remains disconnected without being reported.
-- It publishes without explicit confirmation.
+- It asks for a redundant publish confirmation.
 - It restores without explicit confirmation.
 - It creates duplicate steps unnecessarily.
 ```
