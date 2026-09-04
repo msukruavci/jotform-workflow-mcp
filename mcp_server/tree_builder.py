@@ -451,7 +451,16 @@ def compute_layered_dag_positions(
     for ref in topo:
         parent_lanes = [lane_by_ref[parent] for parent in parents.get(ref, []) if parent in lane_by_ref]
         if len(parent_lanes) > 1:
-            lane_by_ref[ref] = sum(parent_lanes) / len(parent_lanes)
+            weights = [_semantic_branch_weight(edge_labels.get((p, ref), "")) for p in parents.get(ref, [])]
+            avg_weight = sum(weights) / len(weights) if weights else 0
+            
+            if avg_weight > 0.3:
+                lane_by_ref[ref] = max(parent_lanes) + 1.0
+            elif avg_weight < -0.3:
+                lane_by_ref[ref] = min(parent_lanes) - 1.0
+            else:
+                lane_by_ref[ref] = sum(parent_lanes) / len(parent_lanes)
+                
             assign_children(ref, lane_by_ref[ref])
         elif ref not in lane_by_ref:
             lane_by_ref[ref] = max(lane_by_ref.values(), default=0.0) + 1.0
@@ -482,8 +491,6 @@ def compute_layered_dag_positions(
                 continue
             parent_x = float(parent_pos["x"])
             parent_y = float(parent_pos["y"])
-            if abs(parent_x - candidate_x) > 1.0:
-                continue
             if _vertical_edge_crosses(
                 placed,
                 candidate_x,
