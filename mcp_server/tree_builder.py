@@ -498,7 +498,15 @@ def compute_layered_dag_positions(
         base_x = raw_positions[ref]["x"]
         y = raw_positions[ref]["y"]
         ref_parents = parents.get(ref, [])
-        if len(ref_parents) == 1:
+        if len(ref_parents) > 1:
+            placed_parent_xs = [
+                float(final_positions[parent]["x"])
+                for parent in ref_parents
+                if parent in final_positions
+            ]
+            if len(placed_parent_xs) == len(ref_parents):
+                base_x = sum(placed_parent_xs) / len(placed_parent_xs)
+        elif len(ref_parents) == 1:
             parent = ref_parents[0]
             if (
                 parent in final_positions
