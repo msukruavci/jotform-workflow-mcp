@@ -577,10 +577,34 @@ def _tool_call_allowed(name: str) -> bool:
     return name in FAST_TOOLS
 
 
-def _mark_embedded_tool_error(result: Any) -> bool:
+def _structured_result(result: Any) -> dict[str, Any]:
     structured = getattr(result, "structured_content", None)
-    embedded_error = structured.get("error") if isinstance(structured, dict) else None
-    if embedded_error:
+    return structured if isinstance(structured, dict) else {}
+
+
+def _result_has_side_effect(result: Any) -> bool:
+    structured = _structured_result(result)
+    return bool(structured.get("form_id") or structured.get("workflow_id"))
+
+
+def _result_issue_severity(result: Any) -> str:
+    structured = _structured_result(result)
+    if structured.get("error"):
+        if (
+            _result_has_side_effect(result)
+            or structured.get("partial_success")
+            or structured.get("fallback_used")
+            or structured.get("ai_fallback")
+        ):
+            return "warning"
+        return "error"
+    if structured.get("warnings") or structured.get("health_warnings") or structured.get("fallback_used"):
+        return "warning"
+    return "ok"
+
+
+def _mark_embedded_tool_error(result: Any) -> bool:
+    if _result_issue_severity(result) == "error":
         result.is_error = True
         return True
     return False
@@ -591,13 +615,6 @@ def _idempotency_key(session_id: str, tool_name: str, arguments: dict[str, Any])
     if tool_name not in _IDEMPOTENT_TOOLS or not operation_id:
         return None
     return session_id, tool_name, operation_id[:120]
-
-
-def _result_has_side_effect(result: Any) -> bool:
-    structured = getattr(result, "structured_content", None)
-    if not isinstance(structured, dict):
-        return False
-    return bool(structured.get("form_id") or structured.get("workflow_id"))
 
 
 def _prune_idempotent_results(now: float) -> None:
@@ -683,6 +700,7 @@ class AuditedMCPServer(MCPServer):
                     duration_ms=round((time.perf_counter() - started) * 1000, 1),
                     result=result,
                     is_error=getattr(result, "is_error", None),
+                    result_severity=_result_issue_severity(result),
                     idempotent_replay=True,
                 )
                 return result
@@ -739,6 +757,7 @@ class AuditedMCPServer(MCPServer):
                 duration_ms=round((time.perf_counter() - started) * 1000, 1),
                 result=result,
                 is_error=getattr(result, "is_error", None),
+                result_severity=_result_issue_severity(result),
                 idempotent_replay=replayed,
             )
             return result

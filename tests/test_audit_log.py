@@ -128,6 +128,30 @@ def test_audited_server_marks_embedded_tool_error():
     assert result.is_error is True
 
 
+def test_audited_server_keeps_partial_side_effect_as_warning():
+    result = SimpleNamespace(
+        structured_content={
+            "workflow_id": "wf_partial_1",
+            "error": "Workflow was created but graph write timed out.",
+        },
+        is_error=False,
+    )
+
+    assert audit_log._result_issue_severity(result) == "warning"
+    assert audit_log._mark_embedded_tool_error(result) is False
+    assert result.is_error is False
+
+
+def test_audited_server_reports_fallback_result_as_warning():
+    result = SimpleNamespace(
+        structured_content={"form_id": "form_1", "fallback_used": True},
+        is_error=False,
+    )
+
+    assert audit_log._result_issue_severity(result) == "warning"
+    assert audit_log._mark_embedded_tool_error(result) is False
+
+
 def test_audited_server_rejects_registered_but_hidden_tool():
     assert audit_log._tool_call_allowed("build_workflow_bulk") is True
     assert audit_log._tool_call_allowed("add_step") is False
