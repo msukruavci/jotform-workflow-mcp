@@ -1477,7 +1477,7 @@
   },
   {
     "name": "get_step_details",
-    "description": "\n        Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up, for example before changing it.\n        ",
+    "description": "\n        Get the full configuration of a single step — subject line, recipients,\n        condition terms, and so on.\n\n        get_workflow only summarizes steps; use this when you need to know\n        exactly how one step is set up.\n        ",
     "input_schema": {
       "properties": {
         "workflow_id": {

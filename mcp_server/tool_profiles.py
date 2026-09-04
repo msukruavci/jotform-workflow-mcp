@@ -41,6 +41,13 @@ DEPRECATED_TOOL_NAMES = frozenset({
     "delete_step",
 })
 
+# Kept out of the model-facing surface, but called directly by the embedded
+# workflow editor through the MCP Apps bridge.
+APP_CALLABLE_TOOLS = frozenset({
+    "get_form_fields",
+    "update_step",
+})
+
 TOOL_FEATURES = {"templates": True, "gap_check": False}
 
 

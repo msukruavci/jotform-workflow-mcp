@@ -21,7 +21,7 @@ app the same way you'd add it to any Starlette/FastAPI app.
 Run:
     python api.py
 Then tunnel port 8000 and point the connector's Server URL at
-<tunnel>/sse — matches the /sse path this app already serves.
+<tunnel>/mcp. The historical /sse URL remains available as an alias.
 """
 import uvicorn
 from mcp.server.transport_security import TransportSecuritySettings
@@ -56,10 +56,13 @@ app = mcp.streamable_http_app(
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
-# Route root / to the same streamable HTTP handler as /sse for clients connecting at the root URL
+# Route the canonical /mcp path and root / to the same Streamable HTTP handler
+# as the historical /sse endpoint. This keeps existing Claude connections
+# working while matching ChatGPT's documented remote MCP URL shape.
 from starlette.routing import Route  # noqa: E402
 sse_endpoint = app.routes[0].endpoint
 app.routes.append(Route("/", endpoint=sse_endpoint, methods=["GET", "POST", "OPTIONS", "HEAD"]))
+app.routes.append(Route("/mcp", endpoint=sse_endpoint, methods=["GET", "POST", "OPTIONS", "HEAD"]))
 
 
 import time
@@ -255,4 +258,3 @@ app.add_route("/.well-known/oauth-protected-resource/sse", oauth_meta, methods=[
 if __name__ == "__main__":
     print("SSE server starting on http://127.0.0.1:8000/sse")
     uvicorn.run(app, host="127.0.0.1", port=8000)
-

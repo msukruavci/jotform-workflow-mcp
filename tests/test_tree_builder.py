@@ -148,6 +148,20 @@ def test_layered_dag_layout_does_not_place_node_over_existing_vertical_edge():
     assert positions["new_step"]["x"] != 0
 
 
+def test_diagonal_edge_crossing_existing_node_is_detected():
+    elements = [
+        {"element_id": 7, "position": {"x": 380, "y": 220}},
+    ]
+
+    assert tb._edge_crosses(
+        elements,
+        parent_x=0,
+        parent_y=0,
+        candidate_x=760,
+        candidate_y=440,
+    ) is True
+
+
 def test_layered_dag_layout_centers_merge_between_existing_numeric_parents():
     elements = [
         {"element_id": 1, "type": "workflow_start_point", "position": {"x": 0, "y": 0}},

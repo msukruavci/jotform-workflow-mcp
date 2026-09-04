@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import patch
 
 from mcp.server import MCPServer
 from mcp.server.apps import APP_MIME_TYPE
@@ -103,11 +104,22 @@ def _server():
 
 
 def test_ui_resource_is_registered_with_mcp_app_mime_type():
-    server = _server()
+    assert WORKFLOW_UI_RESOURCE_URI == "ui://jotform/workflows/v53.html"
+
+    with patch.dict("os.environ", {"WORKFLOW_SETTINGS_RUNTIME_URL": ""}):
+        server = _server()
     resources = asyncio.run(server.list_resources())
 
     resource = next(item for item in resources if str(item.uri) == WORKFLOW_UI_RESOURCE_URI)
     assert resource.mime_type == APP_MIME_TYPE
+    assert "domain" not in resource.meta["ui"]
+    assert resource.meta["ui"]["csp"] == {
+        "connectDomains": ["https://api.jotform.com"],
+        "resourceDomains": ["https://www.jotform.com", "https://cdn.jotfor.ms"],
+        "frameDomains": [],
+        "baseUriDomains": [],
+    }
+    assert resource.meta["ui"]["prefersBorder"] is True
 
     contents = list(asyncio.run(server.read_resource(WORKFLOW_UI_RESOURCE_URI)))
     assert contents[0].mime_type == APP_MIME_TYPE
@@ -115,7 +127,8 @@ def test_ui_resource_is_registered_with_mcp_app_mime_type():
 
 
 def test_ui_csp_uses_exact_origins_and_disallows_nested_frames():
-    resources = asyncio.run(_server().list_resources())
+    with patch.dict("os.environ", {"WORKFLOW_SETTINGS_RUNTIME_URL": ""}):
+        resources = asyncio.run(_server().list_resources())
     resource = next(item for item in resources if str(item.uri) == WORKFLOW_UI_RESOURCE_URI)
     csp = resource.meta["ui"]["csp"]
 
@@ -146,6 +159,9 @@ def test_show_tools_are_bound_to_the_ui_resource():
         assert by_name[name].meta["ui"]["resourceUri"] == WORKFLOW_UI_RESOURCE_URI
         assert by_name[name].meta["openai/outputTemplate"] == WORKFLOW_UI_RESOURCE_URI
         assert by_name[name].meta["openai/widgetAccessible"] is True
+
+    assert by_name["show_workflows"].title == "Jotform Workflows"
+    assert by_name["show_workflow"].title == "Jotform Workflow"
 
 
 def test_show_workflows_returns_versioned_authoritative_payload():
@@ -213,3 +229,29 @@ def test_show_workflow_returns_versioned_authoritative_payload():
     assert len(result.content) == 1
     assert "resourceObject" not in result.content[0].text
     assert len(result.content[0].text) < 500
+
+
+def test_configured_settings_runtime_is_scoped_to_payload_and_csp():
+    runtime_url = "https://developer.jotform.test/s/umd/dev/for-workflow-settings.js"
+    with patch.dict("os.environ", {"WORKFLOW_SETTINGS_RUNTIME_URL": runtime_url}):
+        server = _server()
+
+    resource = next(
+        item for item in asyncio.run(server.list_resources())
+        if str(item.uri) == WORKFLOW_UI_RESOURCE_URI
+    )
+    result = asyncio.run(server.call_tool("show_workflow", {"workflow_id": "wf-1"}))
+
+    assert result.structured_content["data"]["settings_runtime_url"] == runtime_url
+    assert "https://developer.jotform.test" in resource.meta["ui"]["csp"]["resourceDomains"]
+
+
+def test_non_https_settings_runtime_is_ignored():
+    with patch.dict(
+        "os.environ",
+        {"WORKFLOW_SETTINGS_RUNTIME_URL": "http://localhost:3000/runtime.js"},
+    ):
+        server = _server()
+
+    result = asyncio.run(server.call_tool("show_workflow", {"workflow_id": "wf-1"}))
+    assert result.structured_content["data"]["settings_runtime_url"] is None

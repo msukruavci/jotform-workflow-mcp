@@ -224,6 +224,60 @@ def _node_crosses_vertical_edges(
     )
 
 
+def _edge_crosses(
+    elements: list[dict],
+    parent_x: float,
+    parent_y: float,
+    candidate_x: float,
+    candidate_y: float,
+    *,
+    ignore_ids: set[str] | None = None,
+    padding: float = 12.0,
+) -> bool:
+    """Return true when the parent-to-child segment runs through a node."""
+    if abs(parent_x - candidate_x) <= 1.0:
+        return _vertical_edge_crosses(
+            elements,
+            candidate_x,
+            parent_y,
+            candidate_y,
+            ignore_ids=ignore_ids,
+            padding=padding,
+        )
+
+    top = min(parent_y, candidate_y)
+    bottom = max(parent_y, candidate_y)
+    if bottom - top <= DEFAULT_ELEMENT_SIZE["height"]:
+        return False
+
+    ignored = ignore_ids or set()
+    delta_y = candidate_y - parent_y
+    for element in elements:
+        if str(element.get("element_id")) in ignored:
+            continue
+        position = _position_of(element)
+        if position is None:
+            continue
+        x, y = position
+        width, height = _size_of(element)
+        node_top = max(top, y + padding)
+        node_bottom = min(bottom, y + height - padding)
+        if node_top >= node_bottom:
+            continue
+
+        x_at_top = parent_x + (candidate_x - parent_x) * (
+            (node_top - parent_y) / delta_y
+        )
+        x_at_bottom = parent_x + (candidate_x - parent_x) * (
+            (node_bottom - parent_y) / delta_y
+        )
+        left = x - padding
+        right = x + width + padding
+        if max(min(x_at_top, x_at_bottom), left) <= min(max(x_at_top, x_at_bottom), right):
+            return True
+    return False
+
+
 def compute_position(
     elements: list[dict],
     after_step_id: str | int | list[str | int] | None,
@@ -563,12 +617,11 @@ def compute_layered_dag_positions(
                 continue
             parent_x = float(parent_pos["x"])
             parent_y = float(parent_pos["y"])
-            if abs(parent_x - candidate_x) > 1.0:
-                continue
-            if _vertical_edge_crosses(
+            if _edge_crosses(
                 placed,
-                candidate_x,
+                parent_x,
                 parent_y,
+                candidate_x,
                 candidate_y,
                 ignore_ids={parent_id},
             ):
@@ -579,7 +632,15 @@ def compute_layered_dag_positions(
         base_x = raw_positions[ref]["x"]
         y = raw_positions[ref]["y"]
         ref_parents = parents.get(ref, [])
-        if len(ref_parents) == 1:
+        if len(ref_parents) > 1:
+            placed_parent_xs = [
+                float(final_positions[parent]["x"])
+                for parent in ref_parents
+                if parent in final_positions
+            ]
+            if len(placed_parent_xs) == len(ref_parents):
+                base_x = sum(placed_parent_xs) / len(placed_parent_xs)
+        elif len(ref_parents) == 1:
             parent = ref_parents[0]
             if (
                 parent in final_positions
@@ -658,6 +719,14 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
         if "afterAmount" in execute_when:
             execute_when["afterAmount"] = str(execute_when["afterAmount"])
 
+    if canonical_type in ("workflow_send_email", "workflow_reminder_email"):
+        if "from_name" in config and "senderName" not in config:
+            config["senderName"] = config.pop("from_name")
+        if "fromEmail" in config and "senderEmail" not in config:
+            config["senderEmail"] = config.pop("fromEmail")
+        elif "from_email" in config and "senderEmail" not in config:
+            config["senderEmail"] = config.pop("from_email")
+
     schema = schema_registry.get_simplified_schema(step_type)
     if schema is None:
         raise ValidationError(
@@ -666,6 +735,13 @@ def validate_config(step_type: str, config: dict) -> tuple[dict, list[str]]:
         )
 
     by_name = {f["name"]: f for f in schema["fields"]}
+    # The checked-in schema trails the live Email composer. senderName is the
+    # actual visible sender while fromName can hold legacy creator metadata;
+    # accept both without collapsing these distinct production values.
+    if canonical_type in ("workflow_send_email", "workflow_reminder_email"):
+        from_name_field = by_name.get("fromName")
+        if from_name_field:
+            by_name["senderName"] = {**from_name_field, "name": "senderName"}
     clean: dict = {}
     warnings: list[str] = []
 

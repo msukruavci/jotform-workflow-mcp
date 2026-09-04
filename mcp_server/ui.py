@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from mcp.server.apps import Apps, ResourceCsp
 from mcp_types import CallToolResult, TextContent
@@ -15,13 +16,16 @@ from mcp_server.jotform_client import JotformClient
 from mcp_server.models import WorkflowListUIResult, WorkflowPreviewUIResult
 from mcp_server.tools.reading import read_workflow_list, read_workflow_preview
 
-WORKFLOW_UI_RESOURCE_URI = "ui://jotform/workflows/v34.html"
+# Bump this whenever the embedded MCP UI or its CSP contract changes. Clients
+# cache `ui://` resources by URI, so reusing a version can leave an older host
+# unable to load a newly configured settings runtime.
+WORKFLOW_UI_RESOURCE_VERSION = 53
+WORKFLOW_UI_RESOURCE_URI = (
+    f"ui://jotform/workflows/v{WORKFLOW_UI_RESOURCE_VERSION}.html"
+)
 WORKFLOW_UI_LEGACY_RESOURCE_URIS: tuple[str, ...] = tuple(
-    f"ui://jotform/workflows/v{i}.html" for i in range(1, 29)
-) + (
-    "ui://jotform/workflows/v31.html",
-    "ui://jotform/workflows/v32.html",
-    "ui://jotform/workflows/v33.html",
+    f"ui://jotform/workflows/v{version}.html"
+    for version in range(1, WORKFLOW_UI_RESOURCE_VERSION)
 )
 LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +47,26 @@ _FALLBACK_HTML = """<!doctype html>
   </body>
 </html>
 """
+
+
+def workflow_settings_runtime_url() -> str | None:
+    """Return the explicitly configured HTTPS runtime without guessing a host."""
+    value = os.environ.get("WORKFLOW_SETTINGS_RUNTIME_URL", "").strip()
+    if not value:
+        return None
+
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+        LOGGER.warning("Ignoring invalid WORKFLOW_SETTINGS_RUNTIME_URL; HTTPS is required.")
+        return None
+    return value
+
+
+def _runtime_resource_origin(runtime_url: str | None) -> str | None:
+    if not runtime_url:
+        return None
+    parsed = urlsplit(runtime_url)
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def _ui_asset_candidates() -> list[Path]:
@@ -77,6 +101,11 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
     """Create the UI extension before it is attached to the MCP server."""
     apps = Apps()
     resource_html = html if html is not None else load_workflow_ui_html()
+    settings_runtime_url = workflow_settings_runtime_url()
+    runtime_resource_origin = _runtime_resource_origin(settings_runtime_url)
+    resource_domains = list(WORKFLOW_UI_RESOURCE_ORIGINS)
+    if runtime_resource_origin and runtime_resource_origin not in resource_domains:
+        resource_domains.append(runtime_resource_origin)
 
     for resource_uri in (*WORKFLOW_UI_LEGACY_RESOURCE_URIS, WORKFLOW_UI_RESOURCE_URI):
         apps.add_html_resource(
@@ -87,7 +116,7 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
             description="Read-only workflow list and verified workflow graph preview.",
             csp=ResourceCsp(
                 connect_domains=list(WORKFLOW_UI_CONNECT_ORIGINS),
-                resource_domains=list(WORKFLOW_UI_RESOURCE_ORIGINS),
+                resource_domains=resource_domains,
                 frame_domains=[],
                 base_uri_domains=[],
             ),
@@ -146,7 +175,9 @@ def create_workflow_apps(client: JotformClient, *, html: str | None = None) -> A
         already returns the complete summary, and show_workflow fetches and verifies the
         live workflow graph internally. Do not call it for intermediate write steps.
         """
-        payload = WorkflowPreviewUIResult(data=read_workflow_preview(client, workflow_id))
+        data = read_workflow_preview(client, workflow_id)
+        data.settings_runtime_url = settings_runtime_url
+        payload = WorkflowPreviewUIResult(data=data)
         structured = payload.model_dump(mode="json", by_alias=True)
         data = structured["data"]
         summary = {

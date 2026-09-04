@@ -1530,8 +1530,14 @@ def _normalize_email_config(
     config: dict,
     trigger_context: tuple[str | None, dict, str | None] | None = None,
     context_label: str = "trigger form",
+    *,
+    apply_defaults: bool = True,
 ) -> tuple[dict, str | None, str | None]:
-    normalized = {**EMAIL_MODAL_DEFAULTS, **config}
+    normalized = {**EMAIL_MODAL_DEFAULTS, **config} if apply_defaults else dict(config)
+    # Production marks a manually edited email as dirty so AI/default-email
+    # refreshes cannot overwrite the user's saved content later.
+    if not apply_defaults and normalized:
+        normalized["isDirty"] = "Yes"
     hint_parts = []
     trigger_form_id, questions, _ = (
         trigger_context if trigger_context is not None else _trigger_form_questions(client, workflow_id)
@@ -1796,6 +1802,32 @@ def _merge_outcome_updates(current: dict, config: dict) -> dict:
         merged.append(preserved)
 
     return {**config, "outcomes": merged}
+
+
+def _config_from_update_tree_result(
+    current: dict,
+    applied_config: dict,
+    update_response: dict,
+    step_id: str,
+) -> dict:
+    """Mirror Workflow's reducer merge using the write response, not a stale GET."""
+    saved_config = {**current, **applied_config}
+    result = update_response.get("result") if isinstance(update_response, dict) else None
+    elements = result.get("elements") if isinstance(result, dict) else None
+    if not isinstance(elements, list):
+        return saved_config
+
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        data = element.get("data")
+        if not isinstance(data, dict):
+            continue
+        response_id = element.get("elementID") or data.get("element_id") or data.get("id")
+        if str(response_id) == str(step_id):
+            return {**saved_config, **data}
+
+    return saved_config
 
 
 def _extract_ai_form_id(content: dict) -> str | None:
@@ -4131,7 +4163,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
 
         if step_type in ("workflow_send_email", "workflow_reminder_email"):
             clean_config, recipient_hint, recipient_error = _normalize_email_config(
-                client, workflow_id, clean_config
+                client, workflow_id, clean_config, apply_defaults=False
             )
             if recipient_error:
                 return UpdateStepResult(
@@ -4150,10 +4182,19 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
                 _revision_reason(f"before update_step {step_id}", intent, reason),
                 tool_name="update_step",
             )
-            client.update_tree(
+            update_response = client.update_tree(
                 workflow_id, elements=[tb.build_element_update(step_id, clean_config)]
             )
         except JotformAPIError as e:
             return UpdateStepResult(step_id=step_id, warnings=warnings, error=str(e))
 
-        return UpdateStepResult(step_id=step_id, warnings=warnings)
+        return UpdateStepResult(
+            step_id=step_id,
+            config=_config_from_update_tree_result(
+                current,
+                clean_config,
+                update_response,
+                step_id,
+            ),
+            warnings=warnings,
+        )

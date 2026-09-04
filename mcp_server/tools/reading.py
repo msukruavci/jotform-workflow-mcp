@@ -41,7 +41,7 @@ from mcp_server.jotform_client import (
     workflow_updated_at,
 )
 from mcp_server.models import (
-    Connection, EmailStepIncoming, EmailStepSummary, FormField, FormList, FormSummary, Step,
+    Connection, EmailStepIncoming, EmailStepSummary, FormField, FormFieldList, FormList, FormSummary, Step,
     StepDetail, StepEdgeSummary, StepStateSummary, WorkflowDetail, WorkflowHealth, WorkflowList, WorkflowSummary,
     WorkflowGap, WorkflowGapReport, WorkflowRevisionList, WorkflowRevisionSummary,
     WorkflowPreviewData,
@@ -882,7 +882,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
         condition terms, and so on.
 
         get_workflow only summarizes steps; use this when you need to know
-        exactly how one step is set up, for example before changing it.
+        exactly how one step is set up.
         """
         return read_step_detail(client, workflow_id, step_id)
 
@@ -1006,7 +1006,7 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             for f in forms
         ]
         has_more = len(summaries) == limit
-        return FormList(
+        result = FormList(
             forms=summaries,
             limit=limit,
             offset=offset,
@@ -1014,3 +1014,34 @@ def register(mcp: MCPServer, client: JotformClient) -> None:
             has_more=has_more,
             next_offset=offset + len(summaries) if has_more else None,
         )
+        return result
+
+    @mcp.tool()
+    def get_form_fields(
+        form_id: Annotated[str, Field(description="From list_forms.")],
+    ) -> FormFieldList:
+        """
+        List a form's fields (questions), with each field's id, label, type
+        and whether it is required.
+
+        Needed for two things: picking which field a condition should test,
+        and picking which field holds the email address when sending mail to
+        the person who submitted the form.
+        """
+        try:
+            questions = client.get_form_questions(form_id)
+        except JotformAPIError as e:
+            return FormFieldList(form_id=form_id, form_url=_form_url(form_id), error=str(e))
+
+        return FormFieldList(form_id=form_id, form_url=_form_url(form_id), fields=[
+            FormField(
+                field_id=qid,
+                name=q.get("name"),
+                label=q.get("text"),
+                type=q.get("type"),
+                required=q.get("required"),
+                options=_field_options(q),
+            )
+            for qid, q in (questions or {}).items()
+            if isinstance(q, dict)
+        ])

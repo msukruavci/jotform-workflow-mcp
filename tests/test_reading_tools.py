@@ -4,6 +4,25 @@ from mcp_server.telemetry_context import bind_context
 from mcp_server.tools import reading
 
 
+class DummyMCP:
+    def __init__(self):
+        self.tools = {}
+
+    def tool(self):
+        def decorator(fn):
+            self.tools[fn.__name__] = fn
+            return fn
+        return decorator
+
+
+def test_field_options_splits_jotform_pipe_options():
+    assert reading._field_options({"options": "Designer|Engineer|Other"}) == [
+        "Designer",
+        "Engineer",
+        "Other",
+    ]
+
+
 def test_workflow_list_pagination_metadata_and_forwarding():
     class Client:
         def __init__(self):
@@ -104,6 +123,32 @@ def test_read_workflow_detail_includes_trigger_form_fields():
     serialized = result.model_dump()
     assert "health" not in serialized
     assert "diagnostics" not in serialized
+
+
+def test_field_options_accepts_list_options():
+    assert reading._field_options({"options": ["Yes", "No"]}) == ["Yes", "No"]
+
+
+def test_get_form_fields_preserves_the_canonical_question_name():
+    class Client:
+        def get_form_questions(self, form_id):
+            assert form_id == "form-1"
+            return {
+                "3": {
+                    "name": "q3_email",
+                    "text": "Email",
+                    "type": "control_email",
+                    "required": "Yes",
+                },
+            }
+
+    mcp = DummyMCP()
+    reading.register(mcp, Client())
+
+    result = mcp.tools["get_form_fields"]("form-1")
+
+    assert result.fields[0].field_id == "3"
+    assert result.fields[0].name == "q3_email"
 
 
 def test_read_workflow_detail_warns_when_trigger_fields_cannot_be_loaded():

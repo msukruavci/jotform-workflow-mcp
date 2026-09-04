@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
-from mcp_server.tool_profiles import FAST_TOOLS, current_profile, filter_tools
+from mcp_server.tool_profiles import APP_CALLABLE_TOOLS, FAST_TOOLS, current_profile, filter_tools
 
 _CURRENT_SESSION_ID = os.environ.get("MCP_AUDIT_SESSION_ID") or uuid.uuid4().hex
 _CURRENT_SESSION_STARTED_AT = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -571,7 +571,7 @@ def list_feature_requests(*, limit: int = 100, offset: int = 0) -> dict[str, Any
 
 
 def _tool_call_allowed(name: str) -> bool:
-    return name in FAST_TOOLS
+    return name in FAST_TOOLS or name in APP_CALLABLE_TOOLS
 
 
 def _structured_result(result: Any) -> dict[str, Any]:

@@ -57,6 +57,16 @@ def test_profile_arguments_and_env_do_not_change_the_single_surface(monkeypatch)
     ]
 
 
+def test_embedded_editor_tools_stay_hidden_but_are_callable():
+    from mcp_server.audit_log import _tool_call_allowed
+
+    tools = _tools("get_form_fields", "update_step")
+
+    assert filter_tools(tools) == []
+    assert _tool_call_allowed("get_form_fields") is True
+    assert _tool_call_allowed("update_step") is True
+
+
 def test_templates_stay_enabled_and_gap_check_stays_disabled():
     assert feature_enabled("templates") is True
     assert feature_enabled("gap_check") is False
